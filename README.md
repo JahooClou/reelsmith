@@ -1,7 +1,7 @@
 # reelsmith
 
 A step-gated pipeline for turning raw footage into finished short-form vertical
-video. Claude Code plugin, three skills, nine scripts.
+video. Claude Code plugin, three skills, ten scripts.
 
 It is deliberately brand-agnostic. It will extract and use a brand if one exists,
 and it will not invent one if there isn't.
@@ -57,17 +57,19 @@ file", "cut this to the beat" all work directly.
 
 Four shots from one cut, three different cameras, an overcast day with rain.
 
-As shot, the medians run **0.259, 0.518, 0.380, 0.506** — every clip individually
+As shot, the medians run **0.380, 0.471, 0.506, 0.592** — every clip individually
 plausible, and visibly mismatched the moment they sit next to each other. A single
 LUT per camera cannot fix that: it applies one gamma derived from a segment median,
 which darkens everything above that median and lightens everything below it.
 
-Balanced per shot with one shared look on top: **0.404, 0.396, 0.384, 0.424**. The
-spread across the cut goes from **0.259 to 0.039**.
+Balanced per shot with one shared look on top: **0.384, 0.384, 0.424, 0.443**. The
+spread across the cut goes from **0.212 to 0.059**.
 
-The first shot keeps its low saturation deliberately. It is skin, black kit and
-khaki, so there is nothing there to saturate, and forcing it to the target would
-look artificial. Shots that hit the limits are marked `capped` rather than pushed.
+Saturation is measured *after* the chain rather than predicted from the source,
+because stretching levels raises it and the shared look raises it again. The second
+shot lands at 0.350 against a 0.42 target and is left there: it is a mannequin, a
+black tunic and grey sky, so there is little in the frame to saturate and forcing
+it would look artificial. Shots that reach the limits are marked `capped`.
 
 ## Scripts
 

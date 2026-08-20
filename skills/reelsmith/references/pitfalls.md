@@ -298,3 +298,30 @@ if end > shot_end: ...
 
 A static end card is where completion rate dies. Cap it at about 1.5 seconds. If it
 needs longer to read, it has too much on it.
+
+---
+
+## 19. Frames of real people, published somewhere they never agreed to
+
+A reel goes to an audience the people in it expect. A README, a case study, a
+portfolio page or a public repository does not, and consent for one is not consent
+for the other. Spectators and children are in the footage because they came to an
+event, not because they agreed to illustrate a tool.
+
+**Why it slips through:** automated frame selection optimises for something like
+sharpness or visual interest, and both of those correlate with faces. Picking "the
+best frame" from an event reel will reliably hand you a crowd shot.
+
+**Fix:** when frames leave their original context, choose them on that basis
+explicitly — helmets, masks, backs, hands, equipment, wide shots. Then check at
+**full resolution**, not at the size the page will display. A face behind a
+respirator visor disappears in a 190px thumbnail and is perfectly readable in the
+1080px source that anyone can open, and it is the source that gets published.
+
+Check backgrounds too. A frame whose subject is safely turned away can still have a
+bystander in focus behind them.
+
+**If it is already pushed:** rewriting the commit and moving the tag removes it from
+every branch and ref, but the old objects stay reachable by their SHA on most hosts
+until garbage collection. Getting it right before the first push is much cheaper
+than getting it back afterwards.
