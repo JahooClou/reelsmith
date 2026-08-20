@@ -2,9 +2,11 @@
 """Shared helpers for reelsmith scripts: locating ffmpeg, probing, frame maths."""
 import json, os, re, shutil, subprocess, sys
 
+# Common install locations, checked after PATH. Set FFMPEG_PATH to skip the search.
 CANDIDATES = [
-    r"C:\ffmpeg\bin\ffmpeg.exe", r"Z:\ffmpeg\bin\ffmpeg.exe",
+    r"C:\ffmpeg\bin\ffmpeg.exe",
     r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+    r"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe",
     "/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg",
 ]
 
@@ -13,6 +15,9 @@ def find_ffmpeg(explicit=None):
     """Return (ffmpeg, ffprobe). Prefers a full build over a bundled minimal one."""
     if explicit and os.path.exists(explicit):
         return explicit, _probe_beside(explicit)
+    env = os.environ.get("FFMPEG_PATH")
+    if env and os.path.exists(env):
+        return env, _probe_beside(env)
     p = shutil.which("ffmpeg")
     if p:
         return p, shutil.which("ffprobe") or _probe_beside(p)
