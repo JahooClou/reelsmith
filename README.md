@@ -1,7 +1,7 @@
 # reelsmith
 
 A step-gated pipeline for turning raw footage into finished short-form vertical
-video. Claude Code plugin, three skills, seven scripts.
+video. Claude Code plugin, three skills, eight scripts.
 
 It is deliberately brand-agnostic. It will extract and use a brand if one exists,
 and it will not invent one if there isn't.
@@ -44,7 +44,7 @@ file", "cut this to the beat" all work directly.
 | Skill | For |
 |---|---|
 | `reelsmith` | the full pipeline, gated |
-| `reel-color` | measure footage, build `.cube` LUTs, prove them |
+| `reel-color` | measure footage, balance shots to match, build `.cube` LUTs |
 | `reel-cut` | shot detection, verified edit lists, render |
 
 ## Scripts
@@ -56,7 +56,8 @@ All under `scripts/`, all runnable standalone.
 | `ffmpeg_tools.py` | locate ffmpeg, report build capabilities, probe media |
 | `shots.py` | scene detection per segment, labelled contact sheet |
 | `verify.py` | render exact in-points, or scan a long take densely |
-| `color.py` | measure, generate LUTs, before/after comparison |
+| `balance.py` | per-shot balance + one shared look; the matching path |
+| `color.py` | measure, generate per-camera LUTs, before/after comparison |
 | `render.py` | edit list to finished mp4, per-clip LUTs, CFR |
 | `beats.py` | tempo and frame-aligned beat grid, numpy only |
 | `captions.py` | caption plates as PNGs, correct variable-font instances |
@@ -101,14 +102,19 @@ python verify.py master.mp4 --scan 106 124 --step 2 --out take.jpg
 python verify.py master.mp4 --points points.json --out check.jpg
 
 python color.py --measure master.mp4 --groups groups.json --out lutcfg.json
+# rendering yourself: balance per shot, then one shared look
+python balance.py edl.json --source master.mp4 --out grade/
+
+# or hand LUTs to someone grading manually
 python color.py --make-luts lutcfg.json --out luts/
 python color.py --compare master.mp4 --luts luts/ --out compare.jpg
 
 python beats.py track.mp3 --fps 25 --every 4 --out beats.json
-python render.py edl.json --source master.mp4 --out out/ --luts luts/
+python render.py edl.json --source master.mp4 --out out/ \
+  --balance grade/ --shots shots/shots.tsv
 ```
 
-## The four that bite hardest
+## The five that bite hardest
 
 1. **Contact sheets sample mid-shot.** Always render your in-points and look at
    them before cutting.
@@ -118,6 +124,8 @@ python render.py edl.json --source master.mp4 --out out/ --luts luts/
    rate.
 4. **Measure before assuming log.** The file you were handed is often an export
    that was already conformed, and a log expansion on it is unrecoverable.
+5. **One LUT per camera cannot match shots.** Balance per shot, then apply one
+   shared look. And `eq` computes `x^(1/gamma)`, so invert the exponent.
 
 ## Licence
 

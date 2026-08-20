@@ -208,31 +208,39 @@ for footage that is already graded to someone's taste it is usually the right on
 
 ---
 
-## Step 7 · LUTs and comparison
+## Step 7 · Grade, and prove it
 
-If grading, generate `.cube` look LUTs from the measured values:
+Which route depends on who does the grading.
+
+**If you are rendering the cut, balance per shot.** This is the only approach that
+matches cameras, because a camera-level LUT applies one gamma from a segment median
+and so darkens every shot above it while lightening every shot below.
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --source SRC --out GRADEDIR
+```
+
+It measures each clip, corrects levels, white balance and exposure to common
+targets, builds one shared `look.cube`, then measures each shot again through the
+chain to set saturation. Watch the reported medians converge — that convergence
+is the matching.
+
+**If someone else will grade by hand**, generate per-camera look LUTs instead:
 
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --make-luts config.json --out LUTDIR
-```
-
-**Build them conservative.** Most colour tools scale a LUT's strength down, never
-up. A LUT that clips at full strength cannot be rescued by a slider; one that is
-slightly weak can be reinforced anywhere. Set the black point at roughly half the
-measured floor rather than exactly on it.
-
-Then prove it:
-
-```bash
 python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --compare SOURCE --luts LUTDIR
 ```
 
-This renders before and after pairs for representative frames and re-measures them.
-Look at the numbers as well as the pictures — if the black point lands at 0.00 you
-have clipped, whatever the thumbnail looks like.
+**Build those conservative.** Colour tools scale a LUT's strength down, never up.
+One that clips at full strength cannot be rescued by a slider; one that is slightly
+weak can be reinforced anywhere.
 
-**Gate:** apply the LUTs at render time, hand them over for manual grading, or
-discard and try different values? All three are normal outcomes.
+Either way, read the numbers as well as the pictures. A black point landing at 0.00
+means you clipped, whatever the thumbnail looks like.
+
+**Gate:** balance and render, hand LUTs over for manual grading, or retune? All
+three are normal outcomes.
 
 Details on LUT construction, the transfer maths and the `.cube` format are in
 `references/color.md`.
@@ -298,8 +306,13 @@ Write the edit list to a file first, then render from it. The file is the
 deliverable that survives; the mp4 can always be rebuilt from it.
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --source SRC --out OUTDIR
+python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --source SRC --out OUTDIR \
+  --balance GRADEDIR --shots shots/shots.tsv
 ```
+
+`--shots` validates that no clip runs past the end of its shot. A clip that
+overruns pulls frames from the next one, which reads as a two-frame glitch and
+never shows up in a contact sheet, because the sheet samples one frame per shot.
 
 The renderer handles the things that go wrong quietly:
 

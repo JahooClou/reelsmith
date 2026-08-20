@@ -209,7 +209,92 @@ not pixels.
 
 ---
 
-## 13. End cards held too long
+## 13. ffmpeg's `eq` filter inverts gamma
+
+`eq=gamma=G` computes **`x^(1/G)`**, not `x^G`. So `gamma=0.6` darkens, and
+`gamma=1.6` brightens — the opposite of the convention in most colour maths.
+
+**Symptom:** every shot moves the wrong way. A shot measured at median 0.267 and
+corrected toward 0.40 came out at **0.011**.
+
+**Fix:** compute the exponent you want, then pass its reciprocal.
+
+```python
+exponent = math.log(target_mid) / math.log(measured_mid)
+eq_gamma = 1.0 / exponent
+```
+
+---
+
+## 14. One LUT per camera cannot match shots
+
+A camera-level LUT applies one gamma derived from a segment median. That darkens
+every shot above the median and lightens every shot below it — the opposite of
+matching. Exposure and white balance often vary more shot to shot within one
+camera than they do between cameras.
+
+**Symptom:** a graded cut where clips are individually plausible and visibly
+mismatched against each other. Medians spanning 0.14 to 0.50 across eight clips.
+
+**Fix:** balance per shot, then apply one shared look. The order colourists use.
+
+```
+colorlevels    levels + white balance, per channel
+eq gamma       exposure to a common target
+lut3d          the shared look, identical everywhere
+eq saturation  corrected last, against a measured result
+```
+
+Per-shot balance brought that same cut from a 0.36 median spread to 0.045.
+
+---
+
+## 15. White balance measured on the whole frame
+
+Averaging all pixels reads a large coloured object as a cast. Footage with a red
+floor, red kit or heavy red branding measures warm, and a whole-frame correction
+pushes the image cyan to compensate for something that was never wrong.
+
+**Fix:** measure only near-neutral pixels — saturation below about 0.16, luma
+between 0.18 and 0.85 — and balance those. Apply the correction at partial
+strength (around 0.65) so the scene keeps its character.
+
+---
+
+## 16. Saturation predicted instead of measured
+
+Stretching levels raises saturation. An S-curve raises it again. A multiplier
+computed from the source therefore overshoots, sometimes badly: a shot measured at
+0.456 and "corrected" toward 0.42 came out at **0.601**.
+
+**Fix:** correct saturation **last**, and measure it after the rest of the chain
+has run. Render a probe through levels, gamma and look, measure that, then compute
+the multiplier.
+
+**And use the same sampling for both passes.** Measuring the source across five
+frames and the probe across one compares an average to a single frame, and the
+correction chases a difference that is not real.
+
+---
+
+## 17. Clips that overrun their shot
+
+A clip whose in-point plus duration passes the end of its shot pulls frames from
+the next one. It reads as a two-frame glitch mid-clip, and a contact sheet will
+never show it because the sheet samples one frame per shot.
+
+**Fix:** validate every clip against the shot list before rendering.
+
+```python
+end = clip["t"] + frames(clip["dur"], fps)
+if end > shot_end: ...
+```
+
+`render.py --shots shots.tsv` does this and reports the overrun in seconds.
+
+---
+
+## 18. End cards held too long
 
 A static end card is where completion rate dies. Cap it at about 1.5 seconds. If it
 needs longer to read, it has too much on it.

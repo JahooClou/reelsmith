@@ -36,12 +36,34 @@ def lut_for(t, lut_map):
     return lut_map[-1]["name"] if lut_map else None
 
 
+def check_bounds(edl, shots_tsv, fps):
+    """A clip that runs past its shot's end pulls frames from the next shot. It
+    looks like a glitch two frames long and is invisible in a contact sheet."""
+    bounds = []
+    for line in open(shots_tsv, encoding="utf-8"):
+        p = line.rstrip("\n").split("\t")
+        if len(p) >= 4 and p[0] != "code":
+            bounds.append((p[0], float(p[2]), float(p[3])))
+    bad = []
+    for reel in edl["reels"]:
+        for i, c in enumerate(reel["clips"], 1):
+            end = c["t"] + frames(c["dur"], fps)
+            for code, a, b in bounds:
+                if a <= c["t"] < b:
+                    if end > b + 0.01:
+                        bad.append((reel["name"], i, code, b, end))
+                    break
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("edl")
     ap.add_argument("--source", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--luts", help="directory holding .cube files")
+    ap.add_argument("--balance", help="directory from balance.py: per-shot grade + shared look")
+    ap.add_argument("--shots", help="shots.tsv, to check no clip overruns its shot")
+    ap.add_argument("--luts", help="directory holding .cube files (per-camera path)")
     ap.add_argument("--lut-map", help="JSON [{name,start,end}] to pick LUT by timecode")
     ap.add_argument("--captions", help="directory holding caption PNGs")
     ap.add_argument("--crf", type=int, default=18)
@@ -59,6 +81,23 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     tmp = os.path.join(a.out, "_seg")
 
+    if a.shots:
+        bad = check_bounds(edl, a.shots, fps)
+        if bad:
+            print("CLIPS OVERRUNNING THEIR SHOT:")
+            for name, i, code, end_shot, end_clip in bad:
+                print(f"  {name} clip{i}: {code} ends {end_shot:.2f}, "
+                      f"clip runs to {end_clip:.2f}  (+{end_clip-end_shot:.2f}s)")
+            print("Shorten the clip or move the in-point earlier, then re-run.\n")
+        else:
+            print("bounds ok: no clip overruns its shot\n")
+
+    bal = None
+    if a.balance:
+        bal = json.load(open(os.path.join(a.balance, "shot_params.json"),
+                             encoding="utf-8"))
+        print(f"per-shot balance from {a.balance} ({len(bal['clips'])} clips)\n")
+
     src_info = probe(fp, a.source) if fp else {}
     sv = src_info.get("video") or {}
     needs_scale = (sv.get("w"), sv.get("h")) != (W, H)
@@ -72,13 +111,23 @@ def main():
             dur = frames(c["dur"], fps)
             total += dur
             vf = []
-            lut = c.get("lut") or (lut_for(c["t"], lut_map) if lut_map else None)
-            if lut and a.luts:
-                vf.append(f"lut3d=file={lut}.cube")
+            lut = None
+            if bal is not None:
+                # per-shot balance wins over any per-camera LUT
+                from balance import vf_full
+                e = bal["clips"].get(f"{c['t']:.2f}")
+                if e is None:
+                    sys.exit(f"no balance entry for t={c['t']:.2f}; re-run balance.py")
+                vf.append(vf_full(e["params"], bal["look"], e["sat"]))
+                used.append("balanced")
+            else:
+                lut = c.get("lut") or (lut_for(c["t"], lut_map) if lut_map else None)
+                if lut and a.luts:
+                    vf.append(f"lut3d=file={lut}.cube")
+                used.append(lut or "-")
             if needs_scale:
                 vf.append(f"scale={W}:{H}:force_original_aspect_ratio=increase")
                 vf.append(f"crop={W}:{H}")
-            used.append(lut or "-")
 
             cmd = [ff, "-hide_banner", "-loglevel", "error", "-y",
                    "-ss", f"{c['t']:.3f}", "-i", a.source]
@@ -100,7 +149,8 @@ def main():
                     "-c:v", "libx264", "-preset", "medium", "-crf", str(a.seg_crf),
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
                     "-ar", "48000", "-shortest", seg]
-            run(cmd, cwd=a.luts if (lut and a.luts) else None)
+            cwd = a.balance if bal is not None else (a.luts if (lut and a.luts) else None)
+            run(cmd, cwd=cwd)
             parts.append(seg)
 
         card = edl.get("endcard")

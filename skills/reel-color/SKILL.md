@@ -16,8 +16,56 @@ Grading starts with measurement, not with a thumbnail. Two frames that look equa
 flat can need opposite treatments, and the difference only shows in the numbers.
 
 Scripts are in `${CLAUDE_PLUGIN_ROOT}/scripts/`. Read
-`../reelsmith/references/pitfalls.md` first — items 5, 6 and 11 are colour
-specifically, and all three are silent failures.
+`../reelsmith/references/pitfalls.md` first — items 5, 6 and 13 to 16 are colour
+specifically, and all of them are silent failures.
+
+## Two paths, and they are not interchangeable
+
+**Per-shot balance plus one shared look** (`balance.py`) is what you want when you
+are rendering the cut yourself. It is the only approach that actually matches
+cameras.
+
+**Per-camera look LUTs** (`color.py --make-luts`) is what you want when someone
+else will grade by hand in Premiere or Resolve. They get `.cube` files to drop into
+a Look slot and dial by eye.
+
+**A camera-level LUT cannot match shots.** One gamma derived from a segment median
+darkens every shot above that median and lightens every one below. Exposure and
+white balance often vary more from shot to shot inside one camera than they do
+between cameras. If you are rendering, use `balance.py`.
+
+## Per-shot balance
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --source SRC --out GRADEDIR
+python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --source SRC --out OUT --balance GRADEDIR
+```
+
+It measures every unique clip in the edit list, computes levels, white balance and
+exposure per shot, generates one shared `look.cube`, then measures each shot again
+**through the chain** to set saturation. Output is `shot_params.json`, which
+`render.py --balance` consumes.
+
+The chain, in the order colourists use:
+
+```
+colorlevels    levels + white balance, per channel
+eq gamma       exposure to a common target
+lut3d          the shared look, identical on every shot
+eq saturation  corrected last, against a measured result
+```
+
+Three details that are easy to get wrong and all produce plausible-looking output:
+
+- **`eq` computes `x^(1/gamma)`.** Invert the exponent or every shot moves the
+  wrong way.
+- **Measure white balance on near-neutral pixels only.** A whole-frame average
+  reads a red floor as a cast and corrects toward cyan.
+- **Measure saturation after the chain, not before.** Levels and the look each
+  raise it, so a multiplier from the source overshoots.
+
+Shots marked `capped` hit the limits deliberately. A genuinely grey shot should
+stay grey; forcing it to a saturation target looks artificial.
 
 ## 1. Measure before deciding anything
 
