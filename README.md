@@ -67,7 +67,7 @@ All under `scripts/`, all runnable standalone.
 ## Install
 
 ```bash
-git clone https://github.com/USER/reelsmith
+git clone https://github.com/JahooClou/reelsmith
 ```
 
 Then in Claude Code:

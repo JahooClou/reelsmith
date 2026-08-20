@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "Step-gated pipeline for turning raw footage into finished short-form vertical video. Walks concept, branding, shot analysis, colour, captions, music and render, stopping for a decision at every step.",
   "author": {
-    "name": "reelsmith contributors"
+    "name": "JahooClou"
   },
-  "homepage": "https://github.com/USER/reelsmith",
-  "repository": "https://github.com/USER/reelsmith",
+  "homepage": "https://github.com/JahooClou/reelsmith",
+  "repository": "https://github.com/JahooClou/reelsmith",
   "license": "MIT",
   "keywords": [
     "video",
