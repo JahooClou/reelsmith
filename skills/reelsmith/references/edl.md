@@ -84,3 +84,16 @@ real movement: enough to read a gesture, not enough to drag.
 - every `lut` file present in the LUT directory
 - every `caption` file present, if captions are burnt in
 - reel totals plus the end card land near the target length
+
+## Handing it to an editor
+
+`premiere_xml.py` converts this file to FCP7 XML, which Premiere imports as
+sequences with clips cut and positioned, referencing the original master.
+
+Colour cannot travel in FCP7 XML, so `lut`, the balance values and `text` are
+written as timeline markers. The editor reads them off the clip and applies the
+look on an adjustment layer.
+
+That is another reason `note` and `text` are worth filling in even when you are
+rendering yourself: they are what makes the handover legible if the job later moves
+to someone else's timeline.

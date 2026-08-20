@@ -1,7 +1,7 @@
 # reelsmith
 
 A step-gated pipeline for turning raw footage into finished short-form vertical
-video. Claude Code plugin, three skills, eight scripts.
+video. Claude Code plugin, three skills, nine scripts.
 
 It is deliberately brand-agnostic. It will extract and use a brand if one exists,
 and it will not invent one if there isn't.
@@ -60,6 +60,7 @@ All under `scripts/`, all runnable standalone.
 | `color.py` | measure, generate per-camera LUTs, before/after comparison |
 | `render.py` | edit list to finished mp4, per-clip LUTs, CFR |
 | `beats.py` | tempo and frame-aligned beat grid, numpy only |
+| `premiere_xml.py` | edit list to FCP7 XML for Premiere Pro |
 | `captions.py` | caption plates as PNGs, correct variable-font instances |
 | `brand_extract.py` | palette from images, fonts and text from a PSD |
 
@@ -110,6 +111,9 @@ python color.py --make-luts lutcfg.json --out luts/
 python color.py --compare master.mp4 --luts luts/ --out compare.jpg
 
 python beats.py track.mp3 --fps 25 --every 4 --out beats.json
+# hand the cut to an editor instead of rendering it
+python premiere_xml.py edl.json --source master.mp4 --out cut.xml --balance grade/
+
 python render.py edl.json --source master.mp4 --out out/ \
   --balance grade/ --shots shots/shots.tsv
 ```

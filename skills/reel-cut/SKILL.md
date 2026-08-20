@@ -96,7 +96,31 @@ shot when you reorder.
 It verifies the output frame rate and warns if it drifted, which is the symptom of
 a duration that was not a whole number of frames.
 
-## 6. Captions
+## 6. Hand the cut to an editor
+
+If someone will finish in Premiere rather than taking the render:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/premiere_xml.py edl.json --source SRC \
+  --out cut.xml --balance GRADEDIR
+```
+
+Produces FCP7 XML, which Premiere imports without a plugin as a bin of sequences
+with clips cut and positioned. Use `--split` for one file per reel.
+
+It references the **original master with in and out points**, not rendered clips.
+That is the point of handing over a sequence: the editor can slide a cut or extend
+a shot against the real media.
+
+**Colour does not travel.** FCP7 XML cannot express Lumetri, so grade values are
+written as timeline markers instead. The editor puts the shared look on an
+adjustment layer and dials per-clip values from the markers. Caption text goes in
+the markers too, so the words and their positions arrive with the cut.
+
+CMX3600 EDL is the other format people ask for, and it cannot carry source paths at
+all. FCP7 XML is the one to send.
+
+## 7. Captions
 
 Render the picture clean and hand over the text with its timings unless someone
 specifically wants them burnt in. Caption placement is a per-shot judgement — a
@@ -107,7 +131,7 @@ If burning in, use `scripts/captions.py`, which renders plates with PIL. ffmpeg'
 `drawtext` cannot select a named instance of a variable font and will silently give
 you Regular when you asked for Bold Condensed.
 
-## 7. End card
+## 8. End card
 
 Cap it at about 1.5 seconds. A static card is where completion rate dies, and if it
 needs longer to read it has too much on it.
