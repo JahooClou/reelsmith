@@ -6,6 +6,10 @@ video. Claude Code plugin, three skills, nine scripts.
 It is deliberately brand-agnostic. It will extract and use a brand if one exists,
 and it will not invent one if there isn't.
 
+![Eight reels cut from one master](docs/reels.jpg)
+
+*Eight reels cut from a single 9:43 master — shot detection, per-shot grade, frame-accurate cut, rendered clean so captions can be placed in an editor.*
+
 ## Why
 
 Short-form editing is a chain where an early mistake stays invisible until the
@@ -46,6 +50,24 @@ file", "cut this to the beat" all work directly.
 | `reelsmith` | the full pipeline, gated |
 | `reel-color` | measure footage, balance shots to match, build `.cube` LUTs |
 | `reel-cut` | shot detection, verified edit lists, render |
+
+## Colour, in one picture
+
+![Per-shot balance, before and after](docs/grade-before-after.jpg)
+
+Four shots from one cut, three different cameras, an overcast day with rain.
+
+As shot, the medians run **0.259, 0.518, 0.380, 0.506** — every clip individually
+plausible, and visibly mismatched the moment they sit next to each other. A single
+LUT per camera cannot fix that: it applies one gamma derived from a segment median,
+which darkens everything above that median and lightens everything below it.
+
+Balanced per shot with one shared look on top: **0.404, 0.396, 0.384, 0.424**. The
+spread across the cut goes from **0.259 to 0.039**.
+
+The first shot keeps its low saturation deliberately. It is skin, black kit and
+khaki, so there is nothing there to saturate, and forcing it to the target would
+look artificial. Shots that hit the limits are marked `capped` rather than pushed.
 
 ## Scripts
 
