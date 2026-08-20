@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+_seg/
+_frames/
+_ccmp/
+_cmeas/
+*.mp4
+*.cube
+out/
+luts/
+shots/
+reelsmith.json

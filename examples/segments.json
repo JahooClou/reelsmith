@@ -1,0 +1,2 @@
+[{"name": "CamA", "code": "CA", "start": 0.0, "end": 233.48, "threshold": 0.14},
+ {"name": "SlowMo", "code": "SL", "start": 233.48, "end": 583.0, "threshold": 0.10}]

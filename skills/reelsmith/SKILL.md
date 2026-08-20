@@ -1,0 +1,336 @@
+---
+name: reelsmith
+description: >
+  Step-gated pipeline for turning raw footage into finished short-form vertical
+  video (Reels, TikTok, Shorts). Handles concept and hooks, optional brand
+  extraction, shot detection, reframing to 9:16, measured colour grading with
+  generated .cube LUTs, caption typography, optional cut-to-beat music editing,
+  and the final render plus a written edit list. Use this whenever someone wants
+  to make reels, shorts, vertical video, social video cutdowns, a teaser or
+  trailer from existing footage, or asks to analyse footage and build an edit —
+  even if they only mention one part of it, like "make a LUT for this" or "cut
+  this to the beat" or "what shots do I have in this file". Also use when someone
+  has a long video and wants short clips out of it.
+---
+
+# Reelsmith
+
+Turning footage into short-form video is a chain where a mistake in an early link
+is invisible until the render. Somebody picks a shot from a thumbnail, and the
+thumbnail was sampled from the middle of an eighteen-second take, so the frame
+they chose is ten seconds away from the timecode they wrote down. Nobody notices
+until the finished cut has a stranger where the emotional payoff was supposed to be.
+
+This pipeline exists to catch those errors while they are still cheap. It works in
+eleven steps and **stops at every one for a decision.** That is the point: the
+person you are working with knows things about their footage and their audience
+that no amount of analysis will surface, and the gates are where that knowledge
+enters.
+
+## How to run this
+
+Track state in `reelsmith.json` in the working directory. Create it at step 1 and
+update it after each gate. It makes the work resumable and lets someone see what
+was decided and why.
+
+```json
+{
+  "project": "name",
+  "step": 5,
+  "topic": "...",
+  "hooks": [],
+  "brand": {"has_brand": true, "colors": {}, "fonts": {}},
+  "footage": {"path": "...", "cameras": []},
+  "ffmpeg": "path/to/ffmpeg.exe",
+  "color": {"luts_generated": true, "applied": true},
+  "captions": {"font": "...", "burn_in": false},
+  "music": {"path": null, "bpm": null},
+  "reels": []
+}
+```
+
+Scripts live in `${CLAUDE_PLUGIN_ROOT}/scripts/`. They are there so you do not
+rewrite them each time — read the docstring at the top of each before using it.
+
+**Before touching anything media-related, read `references/pitfalls.md`.** It is
+short and every item in it is a bug that has actually shipped. Several are silent
+failures that produce a plausible-looking file that is wrong.
+
+---
+
+## Step 1 · Topic and concept
+
+Ask what the reels are about. Not the brand, not the footage: the subject and who
+is meant to watch.
+
+Then produce **six to ten hooks across different archetypes**, not variations of
+one idea. Curiosity gap, stakes, direct call-out, contrarian claim, in media res,
+number. Label each with its archetype so the person learns the pattern rather than
+just picking a line.
+
+For each hook give the spoken line, the on-screen text, and the visual idea. A hook
+that only works as text is half a hook.
+
+Sketch three to five reel concepts, each one sentence, each aimed at a different
+job: reach, conversion, community, proof.
+
+**Gate:** which hooks and concepts survive? Record them and move on.
+
+Depth on hook construction and retention structure lives in
+`references/concept.md`.
+
+---
+
+## Step 2 · Branding
+
+Ask whether there is a brand: logo, colours, fonts, an existing poster or deck.
+
+If there is, extract rather than guess. `scripts/brand_extract.py` pulls a palette
+from images and reads layer names, text content and fonts from a layered PSD.
+Sample the actual pixels; do not eyeball hex values from a screenshot.
+
+If there is no brand, say so plainly and skip. Do not invent one. An invented
+palette that appears in eight reels becomes a brand nobody agreed to.
+
+Record whatever exists as tokens so later steps can use them without asking again:
+
+```json
+{"paper": "#FBF4E8", "accent": "#9F1A17", "ink": "#000000",
+ "display_font": "path/to.otf", "body_font": "path/to.ttf"}
+```
+
+**Gate:** confirm the extracted values before they propagate.
+
+---
+
+## Step 3 · Footage
+
+Ask what footage exists and where. Establish three things:
+
+- **Is it one file or many?** A single delivered export behaves very differently
+  from a folder of camera originals.
+- **Is it already graded?** If it came out of an edit, it is display-referred, and
+  treating it as log will destroy it. Step 6 measures this rather than trusting the
+  label.
+- **What are the aspect ratios?** Landscape sources need reframing decisions;
+  native vertical does not.
+
+If there is no usable footage, stop here and say what would need to be shot. The
+rest of the pipeline has nothing to work on.
+
+**Gate:** confirm the source paths.
+
+---
+
+## Step 4 · ffmpeg
+
+Everything downstream needs ffmpeg. Ask where it is, or find it:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/ffmpeg_tools.py --locate
+```
+
+It checks PATH, common install locations, and the `imageio-ffmpeg` Python package.
+
+**Prefer a full build over a bundled minimal one.** The `imageio-ffmpeg` binary
+works for probing and frame extraction but often lacks `libx264`, `drawtext` and
+`lut3d`, which the colour and render steps need. If only the minimal build is
+present, say so and offer the choice: fetch a full build, or continue with reduced
+capability.
+
+Verify what the build can actually do rather than assuming:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/ffmpeg_tools.py --check /path/to/ffmpeg
+```
+
+**Gate:** confirm the binary and its capabilities.
+
+---
+
+## Step 5 · Analyse the footage
+
+Now the work that makes the edit possible.
+
+**Probe.** Resolution, frame rate, duration, codec, audio. `--probe`.
+
+**Detect shots.** `scripts/shots.py`. If the footage came from several cameras and
+you know the boundaries, pass them — detection thresholds that suit a fast handheld
+camera will merge cuts in slow motion, and per-range thresholds fix that.
+
+**Build a contact sheet** with shot codes and timecodes burned in.
+
+Then the step everyone skips, and the reason this pipeline exists:
+
+**Verify the in-points by rendering them.** A contact sheet samples one frame per
+shot, usually the midpoint. For a two-second shot that is fine. For a twenty-second
+take it is a different moment entirely from the timecode you are about to write
+down. `scripts/verify.py` renders the exact frame at every in-point you intend to
+use and lays them out labelled, so you look at what you are actually going to cut.
+
+Any take longer than about six seconds should also be sampled densely across its
+length before you pick a moment inside it.
+
+**Reframing.** If sources are not 9:16, compute the crop. A 3:2 open-gate frame at
+6000×4000 yields 2232×4000 at 9:16; 16:9 UHD yields 1215×2160. Both clear
+1080×1920, so quality is rarely the constraint — composition is. Say which shots
+survive the crop and which lose their subject.
+
+**Gate:** present the shot inventory and ask what to do next. This is deliberately
+an open gate; the answer might be "cut it now" or "fix the colour first".
+
+---
+
+## Step 6 · Colour, measured
+
+Do not design a look from a thumbnail. Measure.
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --measure SOURCE --groups groups.json
+```
+
+It reports, per camera or segment: black point, white point, median luma,
+saturation, and channel means.
+
+Read the numbers before deciding anything:
+
+- **Black near 0 and white near 1** means display-referred. Already converted. A log
+  expansion here crushes and clips.
+- **Black around 0.10–0.20 with white around 0.70–0.80** means genuine log. It needs
+  a conversion LUT from the camera manufacturer first; the look goes on top.
+- **Low saturation with full range** is usually weather, not a white-balance error.
+  Overcast and rain flatten saturation while leaving the range intact.
+
+Then propose: grade it, or leave it. Leaving it alone is a legitimate answer, and
+for footage that is already graded to someone's taste it is usually the right one.
+
+**Gate:** grade or pass?
+
+---
+
+## Step 7 · LUTs and comparison
+
+If grading, generate `.cube` look LUTs from the measured values:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --make-luts config.json --out LUTDIR
+```
+
+**Build them conservative.** Most colour tools scale a LUT's strength down, never
+up. A LUT that clips at full strength cannot be rescued by a slider; one that is
+slightly weak can be reinforced anywhere. Set the black point at roughly half the
+measured floor rather than exactly on it.
+
+Then prove it:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --compare SOURCE --luts LUTDIR
+```
+
+This renders before and after pairs for representative frames and re-measures them.
+Look at the numbers as well as the pictures — if the black point lands at 0.00 you
+have clipped, whatever the thumbnail looks like.
+
+**Gate:** apply the LUTs at render time, hand them over for manual grading, or
+discard and try different values? All three are normal outcomes.
+
+Details on LUT construction, the transfer maths and the `.cube` format are in
+`references/color.md`.
+
+---
+
+## Step 8 · Caption typography
+
+Ask what fonts to use. If step 2 found brand fonts, propose those.
+
+Two questions, and the second matters more than it sounds:
+
+**Burn the captions in, or leave the picture clean?** Burnt-in captions are done and
+consistent. Clean picture lets someone place text per shot in their own editor,
+which is usually better, because caption position is a per-shot judgement. A fixed
+vertical position that works over a wide shot lands on a face in a close-up. If in
+doubt, render clean and hand over the text with its timings.
+
+`scripts/captions.py` renders caption plates as transparent PNGs using PIL rather
+than ffmpeg's `drawtext`, because `drawtext` cannot select a named instance of a
+variable font — it will silently give you Regular when you asked for Bold Condensed.
+
+Keep text clear of platform furniture: roughly the top 250px and bottom 320px of a
+1080×1920 frame are covered by interface on most platforms.
+
+**Gate:** confirm fonts and the burn-in decision.
+
+---
+
+## Step 9 · Music
+
+Ask whether there is a music bed.
+
+If not, go straight to step 11. Silence is a real choice — a cut carried by
+production sound stands out in a feed where everything has a track under it.
+
+**Gate:** music or no music?
+
+---
+
+## Step 10 · Cut to beat
+
+Only if there is music.
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/beats.py MUSIC --fps 25
+```
+
+It estimates tempo, returns a beat grid, and snaps to the nearest frame at your
+project rate. Then propose an edit list where cuts land on beats — typically every
+2 or 4 beats, with the strongest shot on the downbeat after a phrase boundary.
+
+Do not force every cut onto a beat. A held shot that breaks the pattern is what
+makes the pattern legible.
+
+**Gate:** approve the beat-aligned edit list, or adjust.
+
+---
+
+## Step 11 · Render
+
+Write the edit list to a file first, then render from it. The file is the
+deliverable that survives; the mp4 can always be rebuilt from it.
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --source SRC --out OUTDIR
+```
+
+The renderer handles the things that go wrong quietly:
+
+- **Durations snapped to whole frames.** A 1.3s cut at 25fps is 32.5 frames. The
+  concat step swallows the half frame and the output drifts off constant frame rate.
+- **Constant frame rate on the final pass.** Concatenating segments with stream copy
+  preserves each segment's timing, and the joins land between frames.
+- **Per-clip LUTs**, chosen from the clip's source timecode, so colour follows a
+  shot if you move it.
+- **Correct flag order**, which sounds trivial and is not — `-t` placed between two
+  inputs limits the second input rather than the output, and you get a file hundreds
+  of times too large with no error message.
+
+Deliver the rendered files, the edit list, and the LUTs together.
+
+**Gate:** review the render. Expect at least one round of changes; that is the
+normal shape of this work, not a failure.
+
+---
+
+## When someone jumps into the middle
+
+People arrive mid-pipeline: "make me a LUT for this", "what shots are in this
+file", "cut this to the beat". Serve the request directly rather than marching them
+through steps 1 to 4 first. Do check the two things that invalidate later work —
+whether ffmpeg can do what is needed, and whether the footage is what they think it
+is — and mention the steps they skipped only if those steps would change the answer.
+
+## Reference files
+
+- `references/pitfalls.md` — silent failures, read before any media work
+- `references/concept.md` — hook archetypes, retention structure, captions and CTAs
+- `references/color.md` — measurement, LUT maths, `.cube` format
+- `references/edl.md` — edit list schema

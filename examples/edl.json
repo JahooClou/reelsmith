@@ -1,0 +1,15 @@
+{
+  "fps": 25, "width": 1080, "height": 1920,
+  "source": "master.mp4",
+  "endcard": { "image": "endcard_1080x1920.png", "dur": 1.5 },
+  "reels": [
+    { "name": "Reel01_hook",
+      "note": "cold open on the exhausted frame, no context",
+      "clips": [
+        { "code": "CA12", "t": 104.30, "dur": 1.52, "lut": "CamA",
+          "text": "OPENING LINE", "note": "exhausted, medal on chest" },
+        { "code": "SL04", "t": 254.62, "dur": 1.12, "lut": "SlowMo",
+          "text": "", "note": "lift, slow motion" }
+      ] }
+  ]
+}
