@@ -5,7 +5,8 @@ description: >
   video (Reels, TikTok, Shorts). Handles concept and hooks, optional brand
   extraction, shot detection, reframing to 9:16, measured colour grading with
   generated .cube LUTs, caption typography, optional cut-to-beat music editing,
-  and the final render plus a written edit list. Use this whenever someone wants
+  and the final render, or a Premiere sequence linked to the camera originals, plus
+  a written edit list. Use this whenever someone wants
   to make reels, shorts, vertical video, social video cutdowns, a teaser or
   trailer from existing footage, or asks to analyse footage and build an edit —
   even if they only mention one part of it, like "make a LUT for this" or "cut
@@ -40,7 +41,7 @@ was decided and why.
   "topic": "...",
   "hooks": [],
   "brand": {"has_brand": true, "colors": {}, "fonts": {}},
-  "footage": {"path": "...", "cameras": []},
+  "footage": {"path": "...", "cameras": [], "originals": true},
   "ffmpeg": "path/to/ffmpeg.exe",
   "color": {"luts_generated": true, "applied": true},
   "captions": {"font": "...", "burn_in": false},
@@ -52,7 +53,7 @@ was decided and why.
 Scripts live in `${CLAUDE_PLUGIN_ROOT}/scripts/`. They are there so you do not
 rewrite them each time — read the docstring at the top of each before using it.
 
-**Before touching anything media-related, read `references/pitfalls.md`.** It is
+**Before touching anything media-related, read `references/pitfalls.md`.** When the footage is of real people and real events, also read `references/documentary.md` before step 1. The story comes before the shot list. It is
 short and every item in it is a bug that has actually shipped. Several are silent
 failures that produce a plausible-looking file that is wrong.
 
@@ -105,20 +106,26 @@ Record whatever exists as tokens so later steps can use them without asking agai
 
 ## Step 3 · Footage
 
-Ask what footage exists and where. Establish three things:
+Ask what footage exists and where. **The edit is always built on the camera
+originals**, so the first thing to establish is where they are. Then:
 
-- **Is it one file or many?** A single delivered export behaves very differently
-  from a folder of camera originals.
-- **Is it already graded?** If it came out of an edit, it is display-referred, and
-  treating it as log will destroy it. Step 6 measures this rather than trusting the
-  label.
+- **Originals or an export?** A folder of camera files is what you want. A single
+  delivered file, a selects reel, or a vertical version someone already cut is an
+  export: it has no handles, it has already been cropped, retimed and graded, and
+  an editor handed a sequence built on it can trim but never extend. If you are
+  given an export, ask for the originals behind it. Work from the export only when
+  the originals genuinely do not exist, and say so in `reelsmith.json`.
+- **Which cameras, at what rates?** Probe every original. 50p and 59.94p material
+  gives true slow motion on a 25p timeline; that is a creative option, so note it.
+- **Is it already graded?** Originals are usually not, but some cameras bake a look
+  in. Step 6 measures this rather than trusting the label.
 - **What are the aspect ratios?** Landscape sources need reframing decisions;
   native vertical does not.
 
 If there is no usable footage, stop here and say what would need to be shot. The
 rest of the pipeline has nothing to work on.
 
-**Gate:** confirm the source paths.
+**Gate:** confirm the original source paths, and that they are originals.
 
 ---
 
@@ -174,7 +181,15 @@ length before you pick a moment inside it.
 **Reframing.** If sources are not 9:16, compute the crop. A 3:2 open-gate frame at
 6000×4000 yields 2232×4000 at 9:16; 16:9 UHD yields 1215×2160. Both clear
 1080×1920, so quality is rarely the constraint — composition is. Say which shots
-survive the crop and which lose their subject.
+survive the crop and which lose their subject. Record the crop per clip as `cx`
+(and `cy`, `z` if needed) in the edit list: the render crops with it and the
+Premiere XML carries it as Motion, so both show the same frame.
+
+Many originals: log them as a set. Sample every file (densely for short clips,
+sparsely for long continuous ones), keep the frames, and write down moments as
+`file + seconds from the start of that file`. That pair is what goes in the edit
+list. When the edit list is drafted, `verify.py --edl` shows the first, middle and
+last frame of every clip as it will actually appear.
 
 **Gate:** present the shot inventory and ask what to do next. This is deliberately
 an open gate; the answer might be "cut it now" or "fix the colour first".
@@ -217,7 +232,7 @@ matches cameras, because a camera-level LUT applies one gamma from a segment med
 and so darkens every shot above it while lightening every shot below.
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --source SRC --out GRADEDIR
+python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --out GRADEDIR
 ```
 
 It measures each clip, corrects levels, white balance and exposure to common
@@ -306,13 +321,26 @@ Write the edit list to a file first, then render from it. The file is the
 deliverable that survives; the mp4 can always be rebuilt from it.
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --source SRC --out OUTDIR \
-  --balance GRADEDIR --shots shots/shots.tsv
+python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --out OUTDIR --balance GRADEDIR
 ```
 
-`--shots` validates that no clip runs past the end of its shot. A clip that
-overruns pulls frames from the next one, which reads as a two-frame glitch and
-never shows up in a contact sheet, because the sheet samples one frame per shot.
+Every clip is cut from its camera original. With originals a file is usually one
+take, so a clip overrunning its take means running off the end of the file, which
+the renderer and the XML both refuse. Where one long file holds many shots,
+`--shots shots.tsv` validates that no clip runs into the next shot; an overrun
+reads as a two-frame glitch and never shows up in a contact sheet.
+
+**Handing over instead of rendering.** If the person will finish in Premiere, or
+asks for an edit list rather than a file, do not render at all:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/premiere_xml.py edl.json --out cut.xml --balance GRADEDIR
+```
+
+The XML links the **camera originals** with in and out points, reframe as Motion,
+slow motion as speed, camera sound and music. Never point it at rendered segments or
+an export: it refuses a source that looks derived and says why. Give a plain list
+too (shot, clip name, source TC in, TC out, duration, speed). See `reel-cut` step 6.
 
 The renderer handles the things that go wrong quietly:
 
@@ -322,6 +350,8 @@ The renderer handles the things that go wrong quietly:
   preserves each segment's timing, and the joins land between frames.
 - **Per-clip LUTs**, chosen from the clip's source timecode, so colour follows a
   shot if you move it.
+- **Segment sound as PCM.** AAC pads every segment, and over a long cut the joins
+  slip a frame every few clips, which drifts the picture off the beat.
 - **Correct flag order**, which sounds trivial and is not — `-t` placed between two
   inputs limits the second input rather than the output, and you get a file hundreds
   of times too large with no error message.
@@ -339,11 +369,14 @@ People arrive mid-pipeline: "make me a LUT for this", "what shots are in this
 file", "cut this to the beat". Serve the request directly rather than marching them
 through steps 1 to 4 first. Do check the two things that invalidate later work —
 whether ffmpeg can do what is needed, and whether the footage is what they think it
-is — and mention the steps they skipped only if those steps would change the answer.
+is (camera originals, or an export of an earlier edit) — and mention the steps they
+skipped only if those steps would change the answer. A request for "an XML" or "an
+edit list" still means one linked to the originals.
 
 ## Reference files
 
 - `references/pitfalls.md` — silent failures, read before any media work
+- `references/documentary.md` — story, structure, sound and dignity for real-people footage; read before cutting any documentary or news reel
 - `references/concept.md` — hook archetypes, retention structure, captions and CTAs
 - `references/color.md` — measurement, LUT maths, `.cube` format
 - `references/edl.md` — edit list schema

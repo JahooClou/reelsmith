@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """Per-shot balance plus one shared look. This is what actually matches cameras.
 
-  python balance.py edl.json --source SRC --out GRADEDIR
-  python balance.py edl.json --source SRC --out GRADEDIR --report cmp.jpg
+  python balance.py edl.json --out GRADEDIR
+  python balance.py edl.json --source SRC --out GRADEDIR      (single-file lists)
+
+Each clip is measured in its camera original (`src`), inside the 9:16 window it
+will be shown through, over the source span it will show. Values are keyed by
+source and in-point, so two cameras cut at the same second do not collide.
 
 Writes `look.cube` and `shot_params.json`. `render.py --balance GRADEDIR` consumes
 both.
@@ -40,7 +44,7 @@ try:
 except ImportError:
     sys.exit("needs numpy and Pillow:  pip install numpy Pillow")
 
-from rs_common import find_ffmpeg, run
+from rs_common import find_ffmpeg, run, probe_source, source_path, clip_key, reframe, speed_of
 
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
 
@@ -52,8 +56,12 @@ OUT_BLACK = 0.016           # lifted output floor so shadows do not sit at zero
 
 
 # ------------------------------------------------------------------ measurement
-def measure(ff, src, t, span=1.2, n=5, tmp="_bal", vf=None, cwd=None):
+def measure(ff, src, t, span=1.2, n=5, tmp="_bal", vf=None, cwd=None, crop=None):
     """Average several frames across the clip. One frame lets a flash define it.
+
+    `crop` limits the measurement to the 9:16 window that will actually be shown.
+    On a landscape original, a bright sky or a red banner outside the crop would
+    otherwise set the levels for a picture that never contains it.
 
     Both passes — before and after the chain — go through here with the same
     sample times, otherwise you are comparing an average against a single frame
@@ -66,8 +74,9 @@ def measure(ff, src, t, span=1.2, n=5, tmp="_bal", vf=None, cwd=None):
         p = os.path.abspath(os.path.join(tmp, "_m.png"))
         cmd = [ff, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{tt:.2f}",
                "-i", src]
-        if vf:
-            cmd += ["-vf", vf]
+        vf_all = ",".join(x for x in (crop, vf) if x)
+        if vf_all:
+            cmd += ["-vf", vf_all]
         cmd += ["-frames:v", "1", p]
         run(cmd, cwd=cwd)
         im = Image.open(p).convert("RGB"); im.thumbnail((240, 240))
@@ -110,7 +119,10 @@ def sat_correction(post):
 
 # ------------------------------------------------------------------ filter chain
 def _levels(p):
-    return (f"colorlevels=rimin={p['imin']}:gimin={p['imin']}:bimin={p['imin']}"
+    # format=rgb48le first: on 10-bit camera originals ffmpeg would otherwise run
+    # colorlevels in planar gbrp10, where it returns a near-black picture with no
+    # error. 16-bit packed RGB keeps the precision and gives the right answer.
+    return (f"format=rgb48le,colorlevels=rimin={p['imin']}:gimin={p['imin']}:bimin={p['imin']}"
             f":rimax={p['rimax']}:gimax={p['gimax']}:bimax={p['bimax']}"
             f":romin={OUT_BLACK}:gomin={OUT_BLACK}:bomin={OUT_BLACK},"
             f"eq=gamma={p['gamma']}")
@@ -155,7 +167,7 @@ def build_look(path, contrast=0.10, cool=0.018):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("edl")
-    ap.add_argument("--source", required=True)
+    ap.add_argument("--source", help="default file for clips with no `src`")
     ap.add_argument("--out", required=True)
     ap.add_argument("--contrast", type=float, default=0.10)
     ap.add_argument("--cool", type=float, default=0.018)
@@ -167,7 +179,7 @@ def main():
     global T_MID, T_SAT
     T_MID, T_SAT = a.target_mid, a.target_sat
 
-    ff, _ = find_ffmpeg(a.ffmpeg)
+    ff, fp = find_ffmpeg(a.ffmpeg)
     if not ff:
         sys.exit("ffmpeg not found")
     os.makedirs(a.out, exist_ok=True)
@@ -175,30 +187,44 @@ def main():
     build_look(os.path.join(a.out, look_name), a.contrast, a.cool)
 
     edl = json.load(open(a.edl, encoding="utf-8"))
-    clips = [(c["t"], c.get("dur", 1.2), c.get("code", ""))
-             for r in edl["reels"] for c in r["clips"]]
-    uniq = sorted({round(t, 2) for t, _, _ in clips})
-    span = {round(t, 2): d for t, d, _ in clips}
-    code = {round(t, 2): c for t, _, c in clips}
+    W, H = edl.get("width", 1080), edl.get("height", 1920)
+    fps = edl.get("fps", 25)
+    infos, seen, todo = {}, set(), []
+    for r in edl["reels"]:
+        for c in r["clips"]:
+            k = clip_key(c)
+            if k in seen:
+                continue
+            seen.add(k)
+            path = source_path(edl, c, a.source)
+            if path not in infos:
+                infos[path] = probe_source(fp, path)
+            si = infos[path]
+            x0, y0, cw, ch, _ = reframe(si["w"], si["h"], W, H, c.get("cx", 0.5),
+                                        c.get("cy", 0.5), c.get("z", 1.0))
+            crop = (f"crop={int(round(cw))}:{int(round(ch))}:{int(round(x0))}:{int(round(y0))}"
+                    if (round(cw), round(ch)) != (si["w"], si["h"]) else None)
+            # measure the source span the clip will actually show
+            span = min(c.get("dur", 1.2) * speed_of(c, si["fps"], fps), 2.0)
+            todo.append((k, path, c["t"], span, crop, c.get("code", "")))
 
-    print(f"{len(uniq)} unique clips   source -> after chain -> corrected")
+    print(f"{len(todo)} unique clips   source -> after chain -> corrected")
     print(f"{'code':8}{'t':>9}{'median':>18}{'saturation':>28}{'gamma':>8}")
     print("-" * 74)
     cache = {}
-    for t in uniq:
-        sp = min(span[t], 2.0)
-        m = measure(ff, a.source, t, span=sp)
+    for k, path, t, sp, crop, code in todo:
+        m = measure(ff, path, t, span=sp, crop=crop)
         p = params(m)
         # same sample times, now through the chain, so the two are comparable
-        after = measure(ff, a.source, t, span=sp,
+        after = measure(ff, path, t, span=sp,
                         tmp=os.path.join(a.out, "_probe"),
-                        vf=vf_base(p, look_name), cwd=a.out)
+                        vf=vf_base(p, look_name), cwd=a.out, crop=crop)
         post, mid_after = after["sat"], after["p50"]
         sat = sat_correction(post)
-        cache[f"{t:.2f}"] = {"measured": m, "params": p,
-                             "post_sat": round(post, 3), "sat": sat}
+        cache[k] = {"measured": m, "params": p, "src": path,
+                    "post_sat": round(post, 3), "sat": sat}
         flag = "  capped" if sat in (SAT_MIN, SAT_MAX) else ""
-        print(f"{code[t][:7]:8}{t:9.2f}  {m['p50']:.3f}->{mid_after:.3f}   "
+        print(f"{code[:7]:8}{t:9.2f}  {m['p50']:.3f}->{mid_after:.3f}   "
               f"{m['sat']:.3f}->{post:.3f} x{sat:.2f} ->{post*sat:.3f}   "
               f"{p['gamma']:6.2f}{flag}")
 
@@ -214,7 +240,7 @@ def main():
     mids = [c["measured"]["p50"] for c in cache.values()]
     print(f"\nsource medians spanned {min(mids):.3f} to {max(mids):.3f}")
     print(f"-> {a.out}\\shot_params.json  and  {a.out}\\{look_name}")
-    print("Then: render.py edl.json --source SRC --out DIR --balance " + a.out)
+    print("Then: render.py edl.json --out DIR --balance " + a.out)
     print("\nCapped shots are ones the targets could not reach without looking")
     print("artificial. A genuinely grey shot should stay grey.")
 

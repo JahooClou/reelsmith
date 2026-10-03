@@ -16,8 +16,8 @@ Grading starts with measurement, not with a thumbnail. Two frames that look equa
 flat can need opposite treatments, and the difference only shows in the numbers.
 
 Scripts are in `${CLAUDE_PLUGIN_ROOT}/scripts/`. Read
-`../reelsmith/references/pitfalls.md` first — items 5, 6 and 13 to 16 are colour
-specifically, and all of them are silent failures.
+`../reelsmith/references/pitfalls.md` first — items 5, 6, 13 to 16 and 21 are
+colour specifically, and all of them are silent failures.
 
 ## Two paths, and they are not interchangeable
 
@@ -37,9 +37,15 @@ between cameras. If you are rendering, use `balance.py`.
 ## Per-shot balance
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --source SRC --out GRADEDIR
-python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --source SRC --out OUT --balance GRADEDIR
+python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --out GRADEDIR
+python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --out OUT --balance GRADEDIR
 ```
+
+Both read each clip from its camera original (`src` in the edit list) and measure
+it inside the 9:16 window it will be shown through. A bright sky or a red banner
+outside the crop would otherwise set the levels of a picture that never contains
+it. Values are keyed by source and in-point, so two cameras cut at the same second
+do not overwrite each other.
 
 It measures every unique clip in the edit list, computes levels, white balance and
 exposure per shot, generates one shared `look.cube`, then measures each shot again
@@ -49,13 +55,19 @@ exposure per shot, generates one shared `look.cube`, then measures each shot aga
 The chain, in the order colourists use:
 
 ```
+format=rgb48le 16-bit RGB first: see below
 colorlevels    levels + white balance, per channel
 eq gamma       exposure to a common target
 lut3d          the shared look, identical on every shot
 eq saturation  corrected last, against a measured result
 ```
 
-Three details that are easy to get wrong and all produce plausible-looking output:
+Four details that are easy to get wrong and all produce plausible-looking output:
+
+- **`colorlevels` on 10-bit originals.** Fed 10-bit camera files, ffmpeg runs it in
+  planar `gbrp10` and returns a near-black picture with no error (a measured median
+  of 0.011 where 0.40 was asked for). The chain converts to `rgb48le` first. If
+  balanced shots come out wildly bright or dark, check this before the maths.
 
 - **`eq` computes `x^(1/gamma)`.** Invert the exponent or every shot moves the
   wrong way.
@@ -135,9 +147,11 @@ justify each value. Say plainly that these are look LUTs for display-referred
 footage, not log conversions — someone will otherwise stack them on top of a
 conversion and wonder why it looks wrong.
 
-If the footage will be graded from original camera files rather than an export,
-say so: the values need recalculating against the source, because the export has
-already had a curve applied.
+Measure the files the grade will be applied to. The edit is handed over linked to
+the camera originals (see `reel-cut`), so values measured on an export are the
+wrong numbers: the export has already had a curve applied. If all you were given
+is an export, say so, and say the values need recalculating once the originals
+arrive.
 
 ## When to leave it alone
 

@@ -1,7 +1,7 @@
 {
   "name": "reelsmith",
-  "version": "1.0.0",
-  "description": "Step-gated pipeline for turning raw footage into finished short-form vertical video. Walks concept, branding, shot analysis, colour, captions, music and render, stopping for a decision at every step.",
+  "version": "1.1.0",
+  "description": "Step-gated pipeline for turning camera originals into finished short-form vertical video, or into a Premiere sequence linked to those originals. Walks concept, branding, shot analysis, colour, captions, music and render, stopping for a decision at every step.",
   "author": {
     "name": "JahooClou"
   },

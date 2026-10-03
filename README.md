@@ -79,12 +79,12 @@ All under `scripts/`, all runnable standalone.
 |---|---|
 | `ffmpeg_tools.py` | locate ffmpeg, report build capabilities, probe media |
 | `shots.py` | scene detection per segment, labelled contact sheet |
-| `verify.py` | render exact in-points, or scan a long take densely |
+| `verify.py` | render exact in-points, scan a long take, or check a whole edit list cropped and timed |
 | `balance.py` | per-shot balance + one shared look; the matching path |
 | `color.py` | measure, generate per-camera LUTs, before/after comparison |
-| `render.py` | edit list to finished mp4, per-clip LUTs, CFR |
+| `render.py` | edit list to finished mp4 from the camera originals: reframe, speed, per-clip colour, CFR |
 | `beats.py` | tempo and frame-aligned beat grid, numpy only |
-| `premiere_xml.py` | edit list to FCP7 XML for Premiere Pro |
+| `premiere_xml.py` | edit list to FCP7 XML for Premiere Pro, linked to the camera originals; refuses exports |
 | `captions.py` | caption plates as PNGs, correct variable-font instances |
 | `brand_extract.py` | palette from images, fonts and text from a PSD |
 
@@ -114,35 +114,51 @@ Then in Claude Code:
 pip install Pillow numpy psd-tools
 ```
 
+## Originals, always
+
+The edit is built on the **camera originals**, and everything that comes out of it
+points back at them. The edit list names each clip's original file (`src`) and an
+in-point in seconds from the start of that file. The render cuts from those files,
+the grade is measured in them, and the Premiere XML links them with in and out
+points, the reframe as Motion and slow motion as speed.
+
+Nothing is prerendered for the handover. An export of an earlier edit has no
+handles, is already cropped, already at the delivery frame rate and already graded,
+so an editor given a sequence built on one can trim but never extend.
+`premiere_xml.py` refuses a source that looks like an export and says why.
+
 ## A worked example
 
 ```bash
 cd scripts
 
 python ffmpeg_tools.py --locate
-python ffmpeg_tools.py --probe master.mp4
+python ffmpeg_tools.py --probe /shoot/A001C014.MOV /shoot/DJI_0003_D.MP4
 
-python shots.py master.mp4 --out shots/ --segments segments.json
-python verify.py master.mp4 --scan 106 124 --step 2 --out take.jpg
-python verify.py master.mp4 --points points.json --out check.jpg
+# log the originals; scan long takes densely before choosing a moment
+python shots.py /shoot/A001C014.MOV --out shots/ --segments segments.json
+python verify.py /shoot/A001C014.MOV --scan 106 124 --step 2 --out take.jpg
 
-python color.py --measure master.mp4 --groups groups.json --out lutcfg.json
+python beats.py track.mp3 --fps 25 --every 4 --out beats.json
+# write edl.json: sources, then clips with src, t, dur, cx, speed
+python verify.py --edl edl.json --out check.jpg      # every clip, cropped and timed
+
+python color.py --measure /shoot/A001C014.MOV --groups groups.json --out lutcfg.json
 # rendering yourself: balance per shot, then one shared look
-python balance.py edl.json --source master.mp4 --out grade/
+python balance.py edl.json --out grade/
 
 # or hand LUTs to someone grading manually
 python color.py --make-luts lutcfg.json --out luts/
-python color.py --compare master.mp4 --luts luts/ --out compare.jpg
+python color.py --compare /shoot/A001C014.MOV --luts luts/ --out compare.jpg
 
-python beats.py track.mp3 --fps 25 --every 4 --out beats.json
-# hand the cut to an editor instead of rendering it
-python premiere_xml.py edl.json --source master.mp4 --out cut.xml --balance grade/
+# hand the cut to an editor: a sequence of the original clips, nothing rendered
+python premiere_xml.py edl.json --out cut.xml --balance grade/
 
-python render.py edl.json --source master.mp4 --out out/ \
-  --balance grade/ --shots shots/shots.tsv
+# or render it
+python render.py edl.json --out out/ --balance grade/
 ```
 
-## The five that bite hardest
+## The six that bite hardest
 
 1. **Contact sheets sample mid-shot.** Always render your in-points and look at
    them before cutting.
@@ -154,6 +170,8 @@ python render.py edl.json --source master.mp4 --out out/ \
    that was already conformed, and a log expansion on it is unrecoverable.
 5. **One LUT per camera cannot match shots.** Balance per shot, then apply one
    shared look. And `eq` computes `x^(1/gamma)`, so invert the exponent.
+6. **Hand over the originals, never an export.** A sequence built on an export has
+   no handles and nothing left to reframe, slow down or grade.
 
 ## Licence
 

@@ -1,22 +1,30 @@
 # -*- coding: utf-8 -*-
 """Render an edit list to finished vertical video.
 
-  python render.py edl.json --source SRC --out DIR
-  python render.py edl.json --source SRC --out DIR --luts LUTDIR --captions CAPDIR
+  python render.py edl.json --out DIR
+  python render.py edl.json --out DIR --luts LUTDIR --captions CAPDIR
+  python render.py edl.json --source SRC --out DIR      (single-file lists)
 
 edl.json:
 {
   "fps": 25, "width": 1080, "height": 1920,
+  "sources": {"CamA_014": "D:/shoot/A001C014.MOV", "Osmo_03": "D:/shoot/DJI_0003.MP4"},
   "endcard": {"image": "card.png", "dur": 1.5},
   "reels": [
     {"name": "Reel01_hook",
-     "clips": [{"code": "CA12", "t": 104.3, "dur": 1.52, "lut": "CamA",
-                "caption": "cap01.png", "text": "ON SCREEN TEXT"}]}
+     "clips": [{"code": "CA12", "src": "CamA_014", "t": 104.3, "dur": 1.52, "cx": 0.42,
+                "lut": "CamA", "caption": "cap01.png", "text": "ON SCREEN TEXT"},
+               {"code": "OS03", "src": "Osmo_03", "t": 12.0, "dur": 1.84, "speed": "conform"}]}
   ]
 }
 
+Clips are cut from the camera originals named by `src`; `t` is seconds from the
+start of that file. The same list drives premiere_xml.py, so the render and the
+editor's sequence come from the same frames. `cx`/`cy`/`z` place the 9:16 window,
+`speed` is a percentage or "conform" (every source frame once: true slow motion).
+
 `lut` is optional; omit it, or pass --lut-map to pick automatically from the
-clip's source timecode so colour follows a shot when you reorder.
+clip's source timecode so colour follows a shot when you reorder (single-file lists).
 
 What this handles that hand-rolled ffmpeg usually does not:
 
@@ -24,9 +32,12 @@ What this handles that hand-rolled ffmpeg usually does not:
   -t placed after all inputs          between inputs it limits the wrong input
   final pass re-encoded at fixed fps  stream-copy concat yields variable rate
   segments encoded above target CRF   gives the final pass headroom
+  segment sound as PCM, not AAC       AAC priming pads each segment, and the
+                                      joins slip a frame every few cuts
 """
 import argparse, json, os, shutil, sys
-from rs_common import find_ffmpeg, run, frames, probe
+from rs_common import (find_ffmpeg, run, frames, probe, probe_source, source_path,
+                       clip_key, speed_of, reframe)
 
 
 def lut_for(t, lut_map):
@@ -47,6 +58,8 @@ def check_bounds(edl, shots_tsv, fps):
     bad = []
     for reel in edl["reels"]:
         for i, c in enumerate(reel["clips"], 1):
+            if c.get("src") is not None:       # shots.tsv describes one file; skip others
+                continue
             end = c["t"] + frames(c["dur"], fps)
             for code, a, b in bounds:
                 if a <= c["t"] < b:
@@ -59,7 +72,7 @@ def check_bounds(edl, shots_tsv, fps):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("edl")
-    ap.add_argument("--source", required=True)
+    ap.add_argument("--source", help="default file for clips with no `src`")
     ap.add_argument("--out", required=True)
     ap.add_argument("--balance", help="directory from balance.py: per-shot grade + shared look")
     ap.add_argument("--shots", help="shots.tsv, to check no clip overruns its shot")
@@ -98,9 +111,14 @@ def main():
                              encoding="utf-8"))
         print(f"per-shot balance from {a.balance} ({len(bal['clips'])} clips)\n")
 
-    src_info = probe(fp, a.source) if fp else {}
-    sv = src_info.get("video") or {}
-    needs_scale = (sv.get("w"), sv.get("h")) != (W, H)
+    infos = {}
+
+    def info_for(path):
+        if path not in infos:
+            if not path or not os.path.exists(path):
+                sys.exit(f"source not found: {path}")
+            infos[path] = probe_source(fp, path)
+        return infos[path]
 
     manifest = []
     for reel in edl["reels"]:
@@ -108,16 +126,20 @@ def main():
         parts, used, total = [], [], 0.0
 
         for i, c in enumerate(reel["clips"]):
+            path = source_path(edl, c, a.source)
+            si = info_for(path)
             dur = frames(c["dur"], fps)
             total += dur
-            vf = []
+            sp = speed_of(c, si["fps"], fps)
+            # retime first, so the colour and crop see the frames that will be shown
+            vf = [f"setpts=(PTS-STARTPTS)/{sp:.6f}"] if abs(sp - 1) > 1e-6 else []
             lut = None
             if bal is not None:
                 # per-shot balance wins over any per-camera LUT
                 from balance import vf_full
-                e = bal["clips"].get(f"{c['t']:.2f}")
+                e = bal["clips"].get(clip_key(c))
                 if e is None:
-                    sys.exit(f"no balance entry for t={c['t']:.2f}; re-run balance.py")
+                    sys.exit(f"no balance entry for {clip_key(c)}; re-run balance.py")
                 vf.append(vf_full(e["params"], bal["look"], e["sat"]))
                 used.append("balanced")
             else:
@@ -125,30 +147,38 @@ def main():
                 if lut and a.luts:
                     vf.append(f"lut3d=file={lut}.cube")
                 used.append(lut or "-")
-            if needs_scale:
-                vf.append(f"scale={W}:{H}:force_original_aspect_ratio=increase")
-                vf.append(f"crop={W}:{H}")
+            # the same window premiere_xml.py writes as Motion Scale and Position
+            x0, y0, cw, ch, _ = reframe(si["w"], si["h"], W, H, c.get("cx", 0.5),
+                                        c.get("cy", 0.5), c.get("z", 1.0))
+            if (round(cw), round(ch)) != (si["w"], si["h"]):
+                vf.append(f"crop={int(round(cw))}:{int(round(ch))}:{int(round(x0))}:{int(round(y0))}")
+            vf.append(f"scale={W}:{H}:flags=lanczos")
 
             cmd = [ff, "-hide_banner", "-loglevel", "error", "-y",
-                   "-ss", f"{c['t']:.3f}", "-i", a.source]
+                   "-ss", f"{c['t']:.3f}", "-i", path]
+            # camera sound for real-time clips; silence for retimed ones and for
+            # files without audio, so every segment has the same streams for concat
+            real_sound = si["audio_ch"] and abs(sp - 1) < 1e-6
+            if not real_sound:
+                cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+            amap = "0:a:0" if real_sound else "1:a"
             cap = c.get("caption")
             if cap and a.captions:
                 cmd += ["-i", os.path.join(a.captions, cap)]
-                chain = (",".join(vf) + "[v0];[v0][1:v]overlay=0:0[v]") if vf \
-                        else "[0:v][1:v]overlay=0:0[v]"
-                cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "0:a?"]
+                ci = 1 if real_sound else 2
+                chain = "[0:v:0]" + ",".join(vf) + f"[v0];[v0][{ci}:v]overlay=0:0[v]"
+                cmd += ["-filter_complex", chain, "-map", "[v]", "-map", amap]
             else:
-                if vf:
-                    cmd += ["-vf", ",".join(vf)]
-                cmd += ["-map", "0:v", "-map", "0:a?"]
+                # 0:v:0, not 0:v: DJI files carry a second video stream (a thumbnail)
+                cmd += ["-vf", ",".join(vf), "-map", "0:v:0", "-map", amap]
 
-            seg = os.path.join(tmp, f"s{i:03d}.mp4")
+            seg = os.path.join(tmp, f"s{i:03d}.mov")
             # -t AFTER all inputs. Between them it limits the wrong input and
             # silently produces a file running to the end of the source.
             cmd += ["-t", f"{dur:.3f}", "-r", str(fps),
                     "-c:v", "libx264", "-preset", "medium", "-crf", str(a.seg_crf),
-                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-                    "-ar", "48000", "-shortest", seg]
+                    "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+                    "-ar", "48000", "-ac", "2", "-map_metadata", "-1", seg]
             cwd = a.balance if bal is not None else (a.luts if (lut and a.luts) else None)
             run(cmd, cwd=cwd)
             parts.append(seg)
@@ -156,13 +186,13 @@ def main():
         card = edl.get("endcard")
         if card and os.path.exists(card.get("image", "")):
             cd = frames(card.get("dur", 1.5), fps)
-            seg = os.path.join(tmp, "s999.mp4")
+            seg = os.path.join(tmp, "s999.mov")
             run([ff, "-hide_banner", "-loglevel", "error", "-y",
                  "-loop", "1", "-i", card["image"],
                  "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
                  "-t", f"{cd:.3f}", "-r", str(fps),
                  "-c:v", "libx264", "-preset", "medium", "-crf", str(a.seg_crf),
-                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", seg])
+                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", seg])
             parts.append(seg); total += cd
 
         lst = os.path.join(tmp, "list.txt")

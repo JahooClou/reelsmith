@@ -325,3 +325,62 @@ bystander in focus behind them.
 every branch and ref, but the old objects stay reachable by their SHA on most hosts
 until garbage collection. Getting it right before the first push is much cheaper
 than getting it back afterwards.
+
+---
+
+## 20. Handing over an export instead of the camera originals
+
+**What happens:** the edit is built on whatever file arrived first: a delivered
+export, a selects reel, a vertical version someone already cut. The render looks
+fine. Then the sequence goes to an editor, and every clip in it is a slice of that
+export.
+
+**Why it bites:** the export has already thrown away what the editor needs. There
+are no handles, so no shot can be extended by even a frame. The frame is already
+cropped, so it cannot be reframed. The rate is already the delivery rate, so there is
+nothing left to slow down. The colour has a curve baked in, so grade values measured
+on it are wrong for the real media.
+
+**Fix:** build the edit list on the originals from the start, `src` plus seconds
+from the start of that file, and link those in the XML. `premiere_xml.py` refuses a
+source already at the delivery size or inside a render folder. If an export really
+is all there is, say so and use `--allow-derived`, knowingly.
+
+---
+
+## 21. `colorlevels` on 10-bit originals returns a black picture
+
+Camera originals are often 10-bit (HEVC `yuv420p10le`). Fed one, ffmpeg runs
+`colorlevels` in planar `gbrp10`, and in current builds that produces a near-black
+frame with no error.
+
+**Symptom:** the balance table shows medians jumping from 0.44 to 0.86 after the
+chain, or a measured median of 0.011 where 0.40 was asked for. The same chain on an
+8-bit export is fine, which is why it went unnoticed.
+
+**Fix:** convert first. `balance.py` starts its chain with `format=rgb48le`, which
+keeps 16-bit precision and gives the right answer.
+
+---
+
+## 22. AAC in render segments slips the cut off the beat
+
+Each segment encoded with AAC sound is padded by the encoder, so its audio runs a
+little past its video. The concat demuxer takes the longer stream, and the final
+constant-frame-rate pass fills the gap with a duplicated frame.
+
+**Symptom:** four clips of 47 + 47 + 59 + 47 frames render as 201 frames, not 200.
+Over eighty clips the picture drifts several frames off the music.
+
+**Fix:** keep segment sound as PCM in `.mov` and encode AAC once, in the final pass.
+Count the frames of the finished file, not just its duration.
+
+---
+
+## 23. DJI files carry a second video stream
+
+DJI originals (Osmo, drones) include a small thumbnail as an extra video stream.
+`-map 0:v` maps both, and the filter chain fails on the thumbnail with an
+unhelpful `Invalid argument`.
+
+**Fix:** map `0:v:0`, the first video stream, everywhere a camera original is read.

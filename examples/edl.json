@@ -1,15 +1,42 @@
 {
-  "fps": 25, "width": 1080, "height": 1920,
-  "source": "master.mp4",
-  "endcard": { "image": "endcard_1080x1920.png", "dur": 1.5 },
+  "fps": 25,
+  "width": 1080,
+  "height": 1920,
+  "sources": {
+    "CamA_014": "shoot/CamA/A001C014.MOV",
+    "Osmo_03": "shoot/Osmo/DJI_0003_D.MP4"
+  },
+  "music": {
+    "path": "music/track.wav",
+    "offset": 0
+  },
+  "endcard": {
+    "image": "endcard_1080x1920.png",
+    "dur": 1.5
+  },
   "reels": [
-    { "name": "Reel01_hook",
+    {
+      "name": "Reel01_hook",
       "note": "cold open on the exhausted frame, no context",
       "clips": [
-        { "code": "CA12", "t": 104.30, "dur": 1.52, "lut": "CamA",
-          "text": "OPENING LINE", "note": "exhausted, medal on chest" },
-        { "code": "SL04", "t": 254.62, "dur": 1.12, "lut": "SlowMo",
-          "text": "", "note": "lift, slow motion" }
-      ] }
+        {
+          "code": "CA12",
+          "src": "CamA_014",
+          "t": 104.3,
+          "dur": 1.52,
+          "cx": 0.42,
+          "text": "OPENING LINE",
+          "note": "exhausted, medal on chest"
+        },
+        {
+          "code": "OS03",
+          "src": "Osmo_03",
+          "t": 12.48,
+          "dur": 1.12,
+          "speed": "conform",
+          "note": "lift, slow motion"
+        }
+      ]
+    }
   ]
 }
