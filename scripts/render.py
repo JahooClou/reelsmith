@@ -88,6 +88,8 @@ def main():
     if not ff:
         sys.exit("ffmpeg not found")
     edl = json.load(open(a.edl, encoding="utf-8"))
+    from rs_common import resolve_beats
+    resolve_beats(edl, a.edl)
     fps = edl.get("fps", 25)
     W, H = edl.get("width", 1080), edl.get("height", 1920)
     lut_map = json.load(open(a.lut_map, encoding="utf-8")) if a.lut_map else []

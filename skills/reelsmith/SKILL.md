@@ -1,382 +1,313 @@
 ---
 name: reelsmith
 description: >
-  Step-gated pipeline for turning raw footage into finished short-form vertical
-  video (Reels, TikTok, Shorts). Handles concept and hooks, optional brand
-  extraction, shot detection, reframing to 9:16, measured colour grading with
-  generated .cube LUTs, caption typography, optional cut-to-beat music editing,
-  and the final render, or a Premiere sequence linked to the camera originals, plus
-  a written edit list. Use this whenever someone wants
-  to make reels, shorts, vertical video, social video cutdowns, a teaser or
-  trailer from existing footage, or asks to analyse footage and build an edit —
-  even if they only mention one part of it, like "make a LUT for this" or "cut
-  this to the beat" or "what shots do I have in this file". Also use when someone
-  has a long video and wants short clips out of it.
+  Video editing from camera originals to a finished cut, for any destination:
+  Reels, TikTok, Shorts, YouTube, Vimeo, aftermovies, event recaps, promos,
+  documentaries and interviews. Starts with a short intake (platform, orientation,
+  beat edit or story edit, pace and music, delivery as a render or as an XML for
+  Premiere), then logs the footage, builds the structure, cuts it to the music or to
+  the story, and delivers either a rendered file or a Premiere sequence linked to the
+  originals plus an edit list. Learns from the editor's own re-edit. Use whenever
+  someone wants an edit, a cut, a reel, a short, a trailer, a teaser, an aftermovie,
+  a highlight film, a recap, a music-video style montage, an edit list or an XML from
+  footage, or asks what shots they have, how to cut something to music, how to
+  shorten a track for an edit, or what changed between two versions of a cut. Also
+  use for one part of the job, such as "cut this to the beat", "find the best
+  moments in this footage", "make a Premiere XML" or "review my re-edit".
 ---
 
 # Reelsmith
 
-Turning footage into short-form video is a chain where a mistake in an early link
-is invisible until the render. Somebody picks a shot from a thumbnail, and the
-thumbnail was sampled from the middle of an eighteen-second take, so the frame
-they chose is ten seconds away from the timecode they wrote down. Nobody notices
-until the finished cut has a stranger where the emotional payoff was supposed to be.
+An editor's skill. The job is the cut: the right moments, in an order that means
+something, on a rhythm the viewer feels. Everything else (logging, music, reframing,
+colour, captions, delivery) serves that.
 
-This pipeline exists to catch those errors while they are still cheap. It works in
-eleven steps and **stops at every one for a decision.** That is the point: the
-person you are working with knows things about their footage and their audience
-that no amount of analysis will surface, and the gates are where that knowledge
-enters.
+It works from **camera originals**, always. The edit list points at the original
+files, the render cuts from them, and the Premiere XML links them with in and out
+points, so an editor can slide any cut against the full take.
 
-## How to run this
+State lives in `reelsmith.json` in the working folder, created at intake and updated
+at every gate, so the job can be resumed and the decisions read back.
 
-Track state in `reelsmith.json` in the working directory. Create it at step 1 and
-update it after each gate. It makes the work resumable and lets someone see what
-was decided and why.
+**Before touching media, read `references/pitfalls.md`.** Every item is a bug that
+shipped. For real people and real events, read `references/documentary.md` too.
+
+---
+
+## 1. Intake: five questions first
+
+Ask these together, in one message, before any analysis. Offer the likely answer
+for each so the editor can reply in one line. Skip only what the request already
+answered.
+
+| # | Question | Why it decides things |
+|---|---|---|
+| 1 | **Where will it be watched?** Social (Reels, TikTok, Shorts) or long-form (YouTube, Vimeo, a screen at an event) | hook and retention rules, length, captions, safe zones, loudness, export |
+| 2 | **Vertical or horizontal?** (9:16, 16:9, 4:5, 1:1) | reframing, which footage survives, caption placement |
+| 3 | **Beat edit or story edit?** | a beat edit is cut to the music's grid; a story edit is cut to meaning and sound, and the music, if any, follows the story |
+| 4 | **What pace, and what music?** An existing track, or one to generate with soundsmith (Suno) | tempo, shot length, where the peaks fall; see `references/music.md` |
+| 5 | **What is delivered?** A rendered file, or an XML for the editing suite (Premiere) plus the edit list | whether colour and captions are done here or handed over |
+
+Then the material questions, briefly: where the originals are, which cameras and
+operators to favour, which days or moments matter most, any brand rules, and how
+long it should run. If the editor gives preferences mid-job ("mostly Saturday
+afternoon", "more slow motion", "very dynamic"), record each one in
+`reelsmith.json` under `brief` and honour it in every later step.
+
+**Gate:** the brief, written back in five lines. Record it and move on.
+
+The answers pick the references to load:
+
+| Answer | Load |
+|---|---|
+| social, vertical | `references/shortform.md` |
+| YouTube, Vimeo, horizontal, long | `references/longform.md` |
+| beat edit, or any music | `references/music.md` |
+| real people, events, interviews | `references/documentary.md` |
+| always, before cutting | `references/craft.md` |
+| XML delivery, or a re-edit came back | `references/delivery.md`, `references/review.md` |
+
+---
+
+## 2. Footage: originals, probed
+
+Find the camera originals and probe them all:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/ffmpeg_tools.py --probe ORIGINAL [ORIGINAL ...]
+```
+
+Record per camera: resolution, frame rate (50p and 59.94p give clean slow motion on
+a 25p timeline), sound, embedded timecode, orientation. If you were handed an export
+of an earlier edit instead, ask for the originals behind it. Work from an export
+only when the originals do not exist, and say so (`premiere_xml.py` refuses one
+without `--allow-derived`).
+
+Compute the reframe before promising it. UHD 16:9 to 9:16 is a 1215×2160 window,
+plenty of pixels; the limit is composition. 9:16 originals into 16:9 do not work
+without a design decision (a blurred fill, a split screen, a graphic frame), so say
+so at the gate.
+
+**Gate:** confirm the sources and the delivery format.
+
+---
+
+## 3. Log: find the moments
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/logsheet.py /shoot/CamA /shoot/CamB /shoot/Drone --out log/
+```
+
+Samples every original (densely for short clips, sparsely for long continuous
+ones), writes contact sheets in recording order with every tile labelled
+`CODE m:ss`, and an index. Read every sheet. Write a log: `code + seconds from the
+start of the clip + what happens`, and mark:
+
+- **establishing shots**: drone, wide, signage, the place itself
+- **action peaks**: the hit, the jump, the moment of effort
+- **faces**: portrait moments, reactions, eyes, exhaustion, joy
+- **sound events**: a shout, a whistle, a crowd roar, a clap
+- **outcome**: finish line, clock, medal, embrace, team photo
+- **slow-motion candidates**: high-rate originals with motion worth stretching
+
+Then scan the stretches you will use densely, and check the actual in-point:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py ORIGINAL --scan 106 124 --step 1 --out take.jpg
+```
+
+A sheet tile is one frame. A twenty-second take holds many moments, and the one you
+liked can be ten seconds from where you would guess.
+
+**Gate:** the log, as a short list of the strongest material per category, and
+anything missing that the brief needs (say it plainly: "no medal ceremony close-ups
+from Sunday").
+
+---
+
+## 4. Structure
+
+**Write the through-line in one sentence before ordering anything.** "A weekend of
+the hardest obstacle race in the country: the place, the effort, the finish, the
+people" is a structure; "nice shots of runners" is not.
+
+Then the shape, by edit type:
+
+- **Story edit.** Acts and peaks from `documentary.md`: the world and the
+  disruption, complications that change the situation, the outcome. Peaks at about
+  24 / 54 / 80 / 95% of the running time, each followed by a breath.
+- **Beat edit.** The music's sections are the acts. Map them first (step 5), then
+  give each section one job: intro = place and ritual, build = escalating action,
+  drop or chorus = the peak and its payoff, break = a face or a held moment, last
+  chorus = everyone, outro = the closing image.
+
+In both, `craft.md` rules apply. The ones editors notice first:
+
+- **Show where it happens, early.** An establishing shot (drone, wide, sign) in the
+  first seconds orients the viewer. It does not have to be the very first shot: a
+  hook can come first and the place right after it.
+- **Open on the strongest thing you have** for social; on a promise of the film for
+  long-form. Never on a logo.
+- **End on the truthful outcome** and a closing image, not on a fade to nothing.
+
+**Gate:** the structure as a section list with timings and the job of each section.
+
+---
+
+## 5. Music
+
+Load `references/music.md`. Three cases:
+
+- **The editor has a track.** Map it: `beats.py` gives the tracked beats (generated
+  music drifts; a fixed grid is frames off by the end), downbeats, bars and section
+  boundaries. If it is too long, `music_cut.py --suggest MIN MAX` ranks splices on
+  downbeats between similar bars; render the chosen one and map the cut file again.
+- **Generate one.** Turn the pace answer into a tempo whose beat is a whole number
+  of frames at the delivery rate, and a section plan that matches step 4. Hand both
+  to the **soundsmith** skill to build the Suno prompt; it covers scoring to picture.
+- **No music.** A story edit on production sound is a real choice and stands out in a
+  feed. Then step 6 cuts on sound and meaning only.
+
+**Gate:** the music file, its length, and its section map.
+
+---
+
+## 6. Cut
+
+Write the edit list (`references/edl.md`): each clip names its original (`src`),
+the in-point in seconds from the start of that file, and its length. For a beat
+edit, give lengths in **beats** and let the tools place the cuts:
 
 ```json
-{
-  "project": "name",
-  "step": 5,
-  "topic": "...",
-  "hooks": [],
-  "brand": {"has_brand": true, "colors": {}, "fonts": {}},
-  "footage": {"path": "...", "cameras": [], "originals": true},
-  "ffmpeg": "path/to/ffmpeg.exe",
-  "color": {"luts_generated": true, "applied": true},
-  "captions": {"font": "...", "burn_in": false},
-  "music": {"path": null, "bpm": null},
-  "reels": []
-}
+{"beat_map": "music/beats.json", "lead": 1, "fps": 25, "width": 1080, "height": 1920,
+ "sources": {"Dro001": "/shoot/Drone/DJI_0003.MP4", "CamA021": "/shoot/CamA/A001C021.MOV"},
+ "reels": [{"name": "Recap", "clips": [
+   {"code": "Dro001", "src": "Dro001", "t": 68.16, "beats": 8, "note": "establishing: the course from the air"},
+   {"code": "CamA021", "src": "CamA021", "t": 4260.0, "beats": 2, "cx": 0.42, "note": "the finish, close"}]}]}
 ```
 
-Scripts live in `${CLAUDE_PLUGIN_ROOT}/scripts/`. They are there so you do not
-rewrite them each time — read the docstring at the top of each before using it.
+**Every picture cut lands `lead` frames before its beat (default 1): audio follows
+video.** A cut exactly on the beat reads as late. This is applied for you from the
+beat map; never place cuts on raw beat times by hand.
 
-**Before touching anything media-related, read `references/pitfalls.md`.** When the footage is of real people and real events, also read `references/documentary.md` before step 1. The story comes before the shot list. It is
-short and every item in it is a bug that has actually shipped. Several are silent
-failures that produce a plausible-looking file that is wrong.
+The rhythm rules that matter most (all in `craft.md`):
 
----
+- Vary shot length. Runs of 1- and 2-beat cuts, then a hold of 4 to 8 beats. The
+  hold is what makes the pattern felt.
+- Hit section changes with the strongest shot; land the drop on a peak.
+- Use the editor's tools, not only straight cuts: a punch-in on the same take, a
+  stepped punch-in (one take sliced into 2 to 4 pieces, each scaled further in), a
+  short speed-up into a cut, slow motion on a face or a peak, a held reaction.
+- Every shot earns its place: one idea per shot, and no two adjacent shots that say
+  the same thing.
 
-## Step 1 · Topic and concept
-
-Ask what the reels are about. Not the brand, not the footage: the subject and who
-is meant to watch.
-
-Then produce **six to ten hooks across different archetypes**, not variations of
-one idea. Curiosity gap, stakes, direct call-out, contrarian claim, in media res,
-number. Label each with its archetype so the person learns the pattern rather than
-just picking a line.
-
-For each hook give the spoken line, the on-screen text, and the visual idea. A hook
-that only works as text is half a hook.
-
-Sketch three to five reel concepts, each one sentence, each aimed at a different
-job: reach, conversion, community, proof.
-
-**Gate:** which hooks and concepts survive? Record them and move on.
-
-Depth on hook construction and retention structure lives in
-`references/concept.md`.
-
----
-
-## Step 2 · Branding
-
-Ask whether there is a brand: logo, colours, fonts, an existing poster or deck.
-
-If there is, extract rather than guess. `scripts/brand_extract.py` pulls a palette
-from images and reads layer names, text content and fonts from a layered PSD.
-Sample the actual pixels; do not eyeball hex values from a screenshot.
-
-If there is no brand, say so plainly and skip. Do not invent one. An invented
-palette that appears in eight reels becomes a brand nobody agreed to.
-
-Record whatever exists as tokens so later steps can use them without asking again:
-
-```json
-{"paper": "#FBF4E8", "accent": "#9F1A17", "ink": "#000000",
- "display_font": "path/to.otf", "body_font": "path/to.ttf"}
-```
-
-**Gate:** confirm the extracted values before they propagate.
-
----
-
-## Step 3 · Footage
-
-Ask what footage exists and where. **The edit is always built on the camera
-originals**, so the first thing to establish is where they are. Then:
-
-- **Originals or an export?** A folder of camera files is what you want. A single
-  delivered file, a selects reel, or a vertical version someone already cut is an
-  export: it has no handles, it has already been cropped, retimed and graded, and
-  an editor handed a sequence built on it can trim but never extend. If you are
-  given an export, ask for the originals behind it. Work from the export only when
-  the originals genuinely do not exist, and say so in `reelsmith.json`.
-- **Which cameras, at what rates?** Probe every original. 50p and 59.94p material
-  gives true slow motion on a 25p timeline; that is a creative option, so note it.
-- **Is it already graded?** Originals are usually not, but some cameras bake a look
-  in. Step 6 measures this rather than trusting the label.
-- **What are the aspect ratios?** Landscape sources need reframing decisions;
-  native vertical does not.
-
-If there is no usable footage, stop here and say what would need to be shot. The
-rest of the pipeline has nothing to work on.
-
-**Gate:** confirm the original source paths, and that they are originals.
-
----
-
-## Step 4 · ffmpeg
-
-Everything downstream needs ffmpeg. Ask where it is, or find it:
+Check it as it will be seen:
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/ffmpeg_tools.py --locate
+python ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --edl edl.json --out check.jpg
 ```
 
-It checks PATH, common install locations, and the `imageio-ffmpeg` Python package.
+First, middle and last frame of every clip, cropped and at its speed. Fix the list,
+not the render.
 
-**Prefer a full build over a bundled minimal one.** The `imageio-ffmpeg` binary
-works for probing and frame extraction but often lacks `libx264`, `drawtext` and
-`lut3d`, which the colour and render steps need. If only the minimal build is
-present, say so and offer the choice: fetch a full build, or continue with reduced
-capability.
-
-Verify what the build can actually do rather than assuming:
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/ffmpeg_tools.py --check /path/to/ffmpeg
-```
-
-**Gate:** confirm the binary and its capabilities.
+**Gate:** the cut as a table (shot, clip, in, length, what it is) plus the check
+sheets. Expect changes; that is the job.
 
 ---
 
-## Step 5 · Analyse the footage
+## 7. Finish
 
-Now the work that makes the edit possible.
+What is done here depends on the delivery answer.
 
-**Probe.** Resolution, frame rate, duration, codec, audio. `--probe`.
-
-**Detect shots.** `scripts/shots.py`. If the footage came from several cameras and
-you know the boundaries, pass them — detection thresholds that suit a fast handheld
-camera will merge cuts in slow motion, and per-range thresholds fix that.
-
-**Build a contact sheet** with shot codes and timecodes burned in.
-
-Then the step everyone skips, and the reason this pipeline exists:
-
-**Verify the in-points by rendering them.** A contact sheet samples one frame per
-shot, usually the midpoint. For a two-second shot that is fine. For a twenty-second
-take it is a different moment entirely from the timecode you are about to write
-down. `scripts/verify.py` renders the exact frame at every in-point you intend to
-use and lays them out labelled, so you look at what you are actually going to cut.
-
-Any take longer than about six seconds should also be sampled densely across its
-length before you pick a moment inside it.
-
-**Reframing.** If sources are not 9:16, compute the crop. A 3:2 open-gate frame at
-6000×4000 yields 2232×4000 at 9:16; 16:9 UHD yields 1215×2160. Both clear
-1080×1920, so quality is rarely the constraint — composition is. Say which shots
-survive the crop and which lose their subject. Record the crop per clip as `cx`
-(and `cy`, `z` if needed) in the edit list: the render crops with it and the
-Premiere XML carries it as Motion, so both show the same frame.
-
-Many originals: log them as a set. Sample every file (densely for short clips,
-sparsely for long continuous ones), keep the frames, and write down moments as
-`file + seconds from the start of that file`. That pair is what goes in the edit
-list. When the edit list is drafted, `verify.py --edl` shows the first, middle and
-last frame of every clip as it will actually appear.
-
-**Gate:** present the shot inventory and ask what to do next. This is deliberately
-an open gate; the answer might be "cut it now" or "fix the colour first".
+- **Reframe** (`cx`, `cy`, `z`): one subject per frame, eyes in the upper third.
+  The same window is used by the render and written into the XML as Motion.
+- **Colour.** For a render: per-shot balance plus one shared look (`balance.py`,
+  `reel-color` skill). For an XML: grade values go into markers; colour is the
+  editor's job in the suite.
+- **Text and captions.** Social: a hook card, a few short cards, burnt-in only if
+  asked; keep them off faces and inside the platform's interface margins. Long-form:
+  lower thirds and a title. Render text plates with `captions.py` (correct font
+  weights), or hand the text over with timings.
+- **Sound.** Music level and ducking, SFX on transitions and impacts (shutter
+  clicks, whooshes, hits), nat sound up where it carries the moment. A sound that
+  starts a frame or two before its picture feels right; one that starts after feels
+  late.
 
 ---
 
-## Step 6 · Colour, measured
+## 8. Deliver
 
-Do not design a look from a thumbnail. Measure.
+Load `references/delivery.md`.
+
+**Rendered file:**
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --measure SOURCE --groups groups.json
+python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --out out/ --balance grade/
 ```
 
-It reports, per camera or segment: black point, white point, median luma,
-saturation, and channel means.
+**For the editing suite** (Premiere): a sequence of the original clips, nothing
+rendered:
 
-Read the numbers before deciding anything:
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/premiere_xml.py edl.json --out cut.xml --balance grade/
+```
 
-- **Black near 0 and white near 1** means display-referred. Already converted. A log
-  expansion here crushes and clips.
-- **Black around 0.10–0.20 with white around 0.70–0.80** means genuine log. It needs
-  a conversion LUT from the camera manufacturer first; the look goes on top.
-- **Low saturation with full range** is usually weather, not a white-balance error.
-  Overcast and rain flatten saturation while leaving the range intact.
+Always hand over the edit list as well: shot, clip name, source TC in, TC out,
+duration, speed, plus a version with notes and reframe values.
 
-Then propose: grade it, or leave it. Leaving it alone is a legitimate answer, and
-for footage that is already graded to someone's taste it is usually the right one.
-
-**Gate:** grade or pass?
+**Gate:** the deliverable. Ask for the editor's re-edit back as an XML.
 
 ---
 
-## Step 7 · Grade, and prove it
+## 9. Learn from the re-edit
 
-Which route depends on who does the grading.
-
-**If you are rendering the cut, balance per shot.** This is the only approach that
-matches cameras, because a camera-level LUT applies one gamma from a segment median
-and so darkens every shot above it while lightening every shot below.
+When the editor sends their version (Premiere: File > Export > Final Cut Pro XML):
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/balance.py edl.json --out GRADEDIR
+python ${CLAUDE_PLUGIN_ROOT}/scripts/review_xml.py reedit.xml --edl edl.json --beats music/beats.json --out review.md
 ```
 
-It measures each clip, corrects levels, white balance and exposure to common
-targets, builds one shared `look.cube`, then measures each shot again through the
-chain to set saturation. Watch the reported medians converge — that convergence
-is the matching.
-
-**If someone else will grade by hand**, generate per-camera look LUTs instead:
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --make-luts config.json --out LUTDIR
-python ${CLAUDE_PLUGIN_ROOT}/scripts/color.py --compare SOURCE --luts LUTDIR
-```
-
-**Build those conservative.** Colour tools scale a LUT's strength down, never up.
-One that clips at full strength cannot be rescued by a slider; one that is slightly
-weak can be reinforced anywhere.
-
-Either way, read the numbers as well as the pictures. A black point landing at 0.00
-means you clipped, whatever the thumbnail looks like.
-
-**Gate:** balance and render, hand LUTs over for manual grading, or retune? All
-three are normal outcomes.
-
-Details on LUT construction, the transfer maths and the `.cube` format are in
-`references/color.md`.
-
----
-
-## Step 8 · Caption typography
-
-Ask what fonts to use. If step 2 found brand fonts, propose those.
-
-Two questions, and the second matters more than it sounds:
-
-**Burn the captions in, or leave the picture clean?** Burnt-in captions are done and
-consistent. Clean picture lets someone place text per shot in their own editor,
-which is usually better, because caption position is a per-shot judgement. A fixed
-vertical position that works over a wide shot lands on a face in a close-up. If in
-doubt, render clean and hand over the text with its timings.
-
-`scripts/captions.py` renders caption plates as transparent PNGs using PIL rather
-than ffmpeg's `drawtext`, because `drawtext` cannot select a named instance of a
-variable font — it will silently give you Regular when you asked for Bold Condensed.
-
-Keep text clear of platform furniture: roughly the top 250px and bottom 320px of a
-1080×1920 frame are covered by interface on most platforms.
-
-**Gate:** confirm fonts and the burn-in decision.
-
----
-
-## Step 9 · Music
-
-Ask whether there is a music bed.
-
-If not, go straight to step 11. Silence is a real choice — a cut carried by
-production sound stands out in a feed where everything has a track under it.
-
-**Gate:** music or no music?
-
----
-
-## Step 10 · Cut to beat
-
-Only if there is music.
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/beats.py MUSIC --fps 25
-```
-
-It estimates tempo, returns a beat grid, and snaps to the nearest frame at your
-project rate. Then propose an edit list where cuts land on beats — typically every
-2 or 4 beats, with the strongest shot on the downbeat after a phrase boundary.
-
-Do not force every cut onto a beat. A held shot that breaks the pattern is what
-makes the pattern legible.
-
-**Gate:** approve the beat-aligned edit list, or adjust.
-
----
-
-## Step 11 · Render
-
-Write the edit list to a file first, then render from it. The file is the
-deliverable that survives; the mp4 can always be rebuilt from it.
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py edl.json --out OUTDIR --balance GRADEDIR
-```
-
-Every clip is cut from its camera original. With originals a file is usually one
-take, so a clip overrunning its take means running off the end of the file, which
-the renderer and the XML both refuse. Where one long file holds many shots,
-`--shots shots.tsv` validates that no clip runs into the next shot; an overrun
-reads as a two-frame glitch and never shows up in a contact sheet.
-
-**Handing over instead of rendering.** If the person will finish in Premiere, or
-asks for an edit list rather than a file, do not render at all:
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/premiere_xml.py edl.json --out cut.xml --balance GRADEDIR
-```
-
-The XML links the **camera originals** with in and out points, reframe as Motion,
-slow motion as speed, camera sound and music. Never point it at rendered segments or
-an export: it refuses a source that looks derived and says why. Give a plain list
-too (shot, clip name, source TC in, TC out, duration, speed). See `reel-cut` step 6.
-
-The renderer handles the things that go wrong quietly:
-
-- **Durations snapped to whole frames.** A 1.3s cut at 25fps is 32.5 frames. The
-  concat step swallows the half frame and the output drifts off constant frame rate.
-- **Constant frame rate on the final pass.** Concatenating segments with stream copy
-  preserves each segment's timing, and the joins land between frames.
-- **Per-clip LUTs**, chosen from the clip's source timecode, so colour follows a
-  shot if you move it.
-- **Segment sound as PCM.** AAC pads every segment, and over a long cut the joins
-  slip a frame every few clips, which drifts the picture off the beat.
-- **Correct flag order**, which sounds trivial and is not — `-t` placed between two
-  inputs limits the second input rather than the output, and you get a file hundreds
-  of times too large with no error message.
-
-Deliver the rendered files, the edit list, and the LUTs together.
-
-**Gate:** review the render. Expect at least one round of changes; that is the
-normal shape of this work, not a failure.
+It measures, rather than guesses: cut timing against the beat in frames, shot
+lengths in beats, what was kept, dropped, reordered, trimmed, punched in, slowed
+down or added, and how the music was cut. Read `references/review.md`, summarise the
+changes as rules, and propose skill updates to the editor. Change the skill only
+with their agreement.
 
 ---
 
 ## When someone jumps into the middle
 
-People arrive mid-pipeline: "make me a LUT for this", "what shots are in this
-file", "cut this to the beat". Serve the request directly rather than marching them
-through steps 1 to 4 first. Do check the two things that invalidate later work —
-whether ffmpeg can do what is needed, and whether the footage is what they think it
-is (camera originals, or an export of an earlier edit) — and mention the steps they
-skipped only if those steps would change the answer. A request for "an XML" or "an
-edit list" still means one linked to the originals.
+"Cut this to the beat", "what's in this footage", "shorten this track", "make an
+XML", "review my re-edit": serve it directly with the matching step. Still check the
+two things that invalidate later work: whether ffmpeg can do what is needed, and
+whether the footage is camera originals. Ask only the intake questions the request
+leaves open.
 
-## Reference files
+## Scripts
 
-- `references/pitfalls.md` — silent failures, read before any media work
-- `references/documentary.md` — story, structure, sound and dignity for real-people footage; read before cutting any documentary or news reel
-- `references/concept.md` — hook archetypes, retention structure, captions and CTAs
-- `references/color.md` — measurement, LUT maths, `.cube` format
-- `references/edl.md` — edit list schema
+| Script | Does |
+|---|---|
+| `ffmpeg_tools.py` | find ffmpeg, report what the build can do, probe media |
+| `logsheet.py` | log many originals: sampled frames, contact sheets, index |
+| `shots.py` | shot detection inside one long file |
+| `verify.py` | dense scan of a take; check every clip of an edit list as seen |
+| `beats.py` | tracked beats, downbeats, bars, sections; cut frames one frame early |
+| `music_cut.py` | shorten a track on downbeats; ranks the best splices |
+| `balance.py`, `color.py` | per-shot balance and shared look; per-camera LUTs |
+| `captions.py` | text plates as PNG with the right font weights |
+| `render.py` | edit list to finished file from the originals |
+| `premiere_xml.py` | edit list to a Premiere sequence linked to the originals |
+| `review_xml.py` | what an editor changed in their re-edit, measured |
+
+## References
+
+- `references/craft.md`: cutting rules, rhythm, transitions, punch-ins, speed, sound
+- `references/shortform.md`: hooks, retention, loops, captions, platform margins
+- `references/longform.md`: YouTube and Vimeo structure, pacing, chapters
+- `references/music.md`: beat vs story edit, pace and tempo, generating with soundsmith, cutting a track
+- `references/documentary.md`: story, structure, sound and dignity with real people
+- `references/delivery.md`: export settings, XML handoff, the edit list format
+- `references/review.md`: reading an editor's re-edit, and what has been learned from them
+- `references/edl.md`: edit list schema
+- `references/color.md`: measurement, LUT maths, `.cube` format
+- `references/pitfalls.md`: silent failures, read before any media work

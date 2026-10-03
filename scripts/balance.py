@@ -187,6 +187,8 @@ def main():
     build_look(os.path.join(a.out, look_name), a.contrast, a.cool)
 
     edl = json.load(open(a.edl, encoding="utf-8"))
+    from rs_common import resolve_beats
+    resolve_beats(edl, a.edl)
     W, H = edl.get("width", 1080), edl.get("height", 1920)
     fps = edl.get("fps", 25)
     infos, seen, todo = {}, set(), []

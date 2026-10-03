@@ -1,7 +1,9 @@
 # reelsmith
 
-A step-gated pipeline for turning raw footage into finished short-form vertical
-video. Claude Code plugin, three skills, ten scripts.
+A video editing skill for Claude Code: from camera originals to a finished cut, for
+social (Reels, TikTok, Shorts) or long-form (YouTube, Vimeo, event screens), as a
+beat edit or a story edit, delivered as a rendered file or as a Premiere sequence
+linked to the originals. Three skills, thirteen scripts.
 
 It is deliberately brand-agnostic. It will extract and use a brand if one exists,
 and it will not invent one if there isn't.
@@ -12,44 +14,58 @@ and it will not invent one if there isn't.
 
 ## Why
 
-Short-form editing is a chain where an early mistake stays invisible until the
-render. Somebody picks a shot from a contact sheet, notes the shot's start
-timecode, and cuts from it — but the sheet sampled the middle of a twenty-second
-take, so the finished cut has a stranger where the payoff was supposed to be.
+Editing is a chain where an early mistake stays invisible until the end. Someone
+picks a moment from a contact sheet, and the sheet sampled the middle of a
+twenty-second take. A cut lands exactly on the beat and the whole montage feels a
+hair late. An editor is handed a sequence built on an export and cannot extend a
+single shot.
 
-Every guardrail in this plugin is a bug that actually shipped. They are collected
-in [`pitfalls.md`](skills/reelsmith/references/pitfalls.md), which is worth reading
-even if you never install the plugin.
+Every guardrail here is a bug that actually shipped, or a rule a working editor
+corrected. They are collected in [`pitfalls.md`](skills/reelsmith/references/pitfalls.md)
+and [`review.md`](skills/reelsmith/references/review.md).
 
-## The eleven steps
+## How it works
 
-Each one stops for a decision. That is the point — the person you are working with
-knows things about their footage and audience that no analysis will surface.
+It starts with five questions, asked together:
+
+1. **Where will it be watched?** Social, or YouTube / Vimeo / a screen.
+2. **Vertical or horizontal?**
+3. **Beat edit or story edit?**
+4. **What pace, and what music?** An existing track, or one generated with the
+   soundsmith (Suno) skill at a tempo that fits the frame rate.
+5. **What is delivered?** A rendered file, or an XML for the editing suite.
+
+Then it works through these steps, each ending at a gate:
 
 | | Step | Gate |
 |---|---|---|
-| 1 | Topic and concept | which hooks and concepts survive |
-| 2 | Branding | extract, or skip if there is none |
-| 3 | Footage | confirm sources |
-| 4 | ffmpeg | confirm binary and its capabilities |
-| 5 | Analyse: shots, framing, colour | what to do next |
-| 6 | Colour measured | grade, or leave as-is |
-| 7 | LUTs and before/after | apply, hand over, or retune |
-| 8 | Caption typography | fonts, and burn-in or clean |
-| 9 | Music | yes, or skip to render |
-| 10 | Cut to beat | approve the beat-aligned list |
-| 11 | Render | review |
+| 1 | Intake | the brief in five lines |
+| 2 | Footage: camera originals, probed | sources and delivery format |
+| 3 | Log: every original sampled, moments found and verified | the strongest material, and what is missing |
+| 4 | Structure: through-line, acts or music sections, peaks | section list with timings |
+| 5 | Music: map, shorten, or generate | the track and its section map |
+| 6 | Cut: edit list in beats, cuts one frame before the beat | the cut and its check sheets |
+| 7 | Finish: reframe, colour, text, sound | |
+| 8 | Deliver: render, or Premiere XML plus the edit list | the deliverable |
+| 9 | Learn: measure the editor's re-edit, propose rule changes | agreed changes |
 
-You can also enter in the middle. "Make a LUT for this", "what shots are in this
-file", "cut this to the beat" all work directly.
+You can also enter in the middle: "cut this to the beat", "shorten this track",
+"make an XML", "what did I change in my re-edit" all work directly.
+
+## Originals, always
+
+The edit is built on the **camera originals**, and everything that comes out of it
+points back at them. The render cuts from them, the grade is measured in them, and
+the Premiere XML links them with in and out points, the reframe as Motion and slow
+motion as speed. `premiere_xml.py` refuses a source that looks like an export.
 
 ## Skills
 
 | Skill | For |
 |---|---|
-| `reelsmith` | the full pipeline, gated |
+| `reelsmith` | the whole edit, from intake to delivery, and learning from the re-edit |
 | `reel-color` | measure footage, balance shots to match, build `.cube` LUTs |
-| `reel-cut` | shot detection, verified edit lists, render |
+| `reel-cut` | single tasks: log, find shots, map and shorten music, cut, render, XML, review |
 
 ## Colour, in one picture
 
@@ -78,13 +94,16 @@ All under `scripts/`, all runnable standalone.
 | Script | Does |
 |---|---|
 | `ffmpeg_tools.py` | locate ffmpeg, report build capabilities, probe media |
+| `logsheet.py` | log many originals: sampled frames, contact sheets in recording order, index |
 | `shots.py` | scene detection per segment, labelled contact sheet |
 | `verify.py` | render exact in-points, scan a long take, or check a whole edit list cropped and timed |
 | `balance.py` | per-shot balance + one shared look; the matching path |
 | `color.py` | measure, generate per-camera LUTs, before/after comparison |
 | `render.py` | edit list to finished mp4 from the camera originals: reframe, speed, per-clip colour, CFR |
-| `beats.py` | tempo and frame-aligned beat grid, numpy only |
+| `beats.py` | tracked beats, downbeats, bars, sections; cut frames one frame before the beat |
+| `music_cut.py` | shorten a track on downbeats; ranks the best splices |
 | `premiere_xml.py` | edit list to FCP7 XML for Premiere Pro, linked to the camera originals; refuses exports |
+| `review_xml.py` | measure what an editor changed in their re-edit (FCP7 XML) |
 | `captions.py` | caption plates as PNGs, correct variable-font instances |
 | `brand_extract.py` | palette from images, fonts and text from a PSD |
 
@@ -133,32 +152,26 @@ so an editor given a sequence built on one can trim but never extend.
 cd scripts
 
 python ffmpeg_tools.py --locate
-python ffmpeg_tools.py --probe /shoot/A001C014.MOV /shoot/DJI_0003_D.MP4
+python logsheet.py /shoot/CamA /shoot/CamB /shoot/Drone --out log/
+python verify.py /shoot/CamA/A001C014.MOV --scan 106 124 --step 1 --out take.jpg
 
-# log the originals; scan long takes densely before choosing a moment
-python shots.py /shoot/A001C014.MOV --out shots/ --segments segments.json
-python verify.py /shoot/A001C014.MOV --scan 106 124 --step 2 --out take.jpg
+python beats.py track.wav --fps 25 --out beats.json
+python music_cut.py track.wav --beats beats.json --suggest 95 120
+python music_cut.py track.wav --beats beats.json --keep bar:1-44,bar:105-end --out cut.wav
+python beats.py cut.wav --fps 25 --out cut_beats.json
 
-python beats.py track.mp3 --fps 25 --every 4 --out beats.json
-# write edl.json: sources, then clips with src, t, dur, cx, speed
+# write edl.json: sources, beat_map cut_beats.json, lead 1, clips with src, t, beats, cx, speed
 python verify.py --edl edl.json --out check.jpg      # every clip, cropped and timed
 
-python color.py --measure /shoot/A001C014.MOV --groups groups.json --out lutcfg.json
-# rendering yourself: balance per shot, then one shared look
-python balance.py edl.json --out grade/
+python balance.py edl.json --out grade/              # per-shot balance + shared look
+python premiere_xml.py edl.json --out cut.xml --balance grade/   # for the editing suite
+python render.py edl.json --out out/ --balance grade/            # or a finished file
 
-# or hand LUTs to someone grading manually
-python color.py --make-luts lutcfg.json --out luts/
-python color.py --compare /shoot/A001C014.MOV --luts luts/ --out compare.jpg
-
-# hand the cut to an editor: a sequence of the original clips, nothing rendered
-python premiere_xml.py edl.json --out cut.xml --balance grade/
-
-# or render it
-python render.py edl.json --out out/ --balance grade/
+# the editor's version comes back as FCP7 XML
+python review_xml.py reedit.xml --edl edl.json --beats beats.json --out review.md
 ```
 
-## The six that bite hardest
+## The seven that bite hardest
 
 1. **Contact sheets sample mid-shot.** Always render your in-points and look at
    them before cutting.
@@ -172,6 +185,8 @@ python render.py edl.json --out out/ --balance grade/
    shared look. And `eq` computes `x^(1/gamma)`, so invert the exponent.
 6. **Hand over the originals, never an export.** A sequence built on an export has
    no handles and nothing left to reframe, slow down or grade.
+7. **Cut one frame before the beat.** Audio follows video; a cut exactly on the
+   beat reads as late.
 
 ## Licence
 

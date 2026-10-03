@@ -20,7 +20,7 @@ frames, and the editor who receives the XML gets the full takes with their handl
     "CamA_018": "shoot/CamA/A001C018.MOV",
     "Osmo_11":  "shoot/Osmo/DJI_0011_D.MP4"
   },
-  "music": { "path": "music/anthem_cut.wav", "offset": 0 },
+  "music": { "path": "music/track_cut.wav", "offset": 0 },
   "endcard": { "image": "endcard_1080x1920.png", "dur": 1.5 },
 
   "reels": [
@@ -43,7 +43,7 @@ frames, and the editor who receives the XML gets the full takes with their handl
           "t": 191.0,
           "dur": 2.36,
           "speed": "conform",
-          "note": "masked firefighter facing camera, slow"
+          "note": "runner facing camera, slow"
         }
       ]
     }
@@ -66,11 +66,33 @@ frames, and the editor who receives the XML gets the full takes with their handl
 | `text` | the caption text even when not burnt in, so it can be placed in an editor |
 | `note` | what the frame shows, so a reviewer can check without opening the file |
 | `music` | the bed, with `offset` in seconds into the file; goes on its own tracks in the XML |
+| `beat_map` | `beats.py` output for the music as it sits on the timeline; enables `beats` |
+| `lead` | frames each picture cut comes before its beat (default 1: audio follows video) |
+| `beats` | clip length in beats instead of `dur`; `"end"` runs to the end of the music |
+| `start_beat` | per reel: beat index the first clip runs up to before counting (default: first downbeat) |
 
 **Legacy single-file lists** (`"source": "master.mp4"` and no `src`) still work,
 and `--source` on the command line does the same. But that file must itself be an
 original. `premiere_xml.py` refuses a source already at the delivery size or inside
 a render folder, because that is an export.
+
+## Beat-driven lengths
+
+With `beat_map` set, give a beat edit's lengths in beats and let the tools place the
+cuts. Every cut lands on the beat's frame minus `lead`:
+
+```json
+{"beat_map": "music/cut_beats.json", "lead": 1, "fps": 25,
+ "reels": [{"name": "Recap", "clips": [
+   {"src": "Dro001", "t": 68.16, "beats": 8},
+   {"src": "Cam011", "t": 191.0, "beats": 4, "speed": "conform"},
+   {"src": "CamA021", "t": 4260.0, "beats": 2, "cx": 0.42},
+   {"src": "CamA026", "t": 2790.0, "beats": "end"}]}]}
+```
+
+`render.py`, `premiere_xml.py`, `balance.py` and `verify.py --edl` all resolve beats
+the same way (`rs_common.resolve_beats`). A clip may still give `dur` for a cut off
+the grid (on action, on a look); the beat cursor follows it.
 
 ## Frame alignment
 

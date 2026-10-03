@@ -384,3 +384,39 @@ DJI originals (Osmo, drones) include a small thumbnail as an extra video stream.
 unhelpful `Invalid argument`.
 
 **Fix:** map `0:v:0`, the first video stream, everywhere a camera original is read.
+
+---
+
+## 24. Cuts placed exactly on the beat read as late
+
+**What happens:** every cut sits on the beat's frame, and the whole montage feels a
+hair behind the music, though every number is "right".
+
+**Why:** the eye registers a cut faster than the ear places a beat. Editors cut one
+or two frames early: audio follows video. Measured on an editor's re-edit: 42 of 67
+cuts lead the beat, median −0.9 frames.
+
+**Fix:** cut frames come from `beats.py` as `beat - lead` (default lead 1). In the
+edit list give lengths in `beats` with `lead` set; do not hand-place cuts on raw
+beat times.
+
+---
+
+## 25. A fixed beat grid on generated music
+
+Generated tracks drift: one went from 127.8 to 131.2 BPM over 3.5 minutes. A grid
+from one tempo estimate is several frames off by the end, and the drift is
+invisible on the first minute you check.
+
+**Fix:** track the beats (`beats.py` does, and reports start and end tempo), and
+check that downbeats fall on the section changes you can hear.
+
+---
+
+## 26. Beat trackers sit beside the transient
+
+A tracker works on a smoothed onset envelope, so its beats sit 30 to 40 ms off
+the audible hit, and a per-beat "snap to transient" jumps to vocals or hats.
+
+**Fix:** move beats by a rolling median of the per-beat transient offsets, so every
+cut keeps the same lead against the drums (`beats.py` does this).

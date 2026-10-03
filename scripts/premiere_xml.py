@@ -246,6 +246,8 @@ def main():
     a = ap.parse_args()
 
     edl = json.load(open(a.edl, encoding="utf-8"))
+    from rs_common import resolve_beats
+    resolve_beats(edl, a.edl)
     _, fp = find_ffmpeg(a.ffmpeg)
     if not fp:
         sys.exit("ffprobe not found: it is needed to read each original's rate, size and timecode")

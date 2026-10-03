@@ -1,13 +1,13 @@
 ---
 name: reel-cut
 description: >
-  Detect shots in video, build a verified edit list, and render finished vertical
-  clips with ffmpeg. Use whenever someone wants to know what shots are in a file,
-  pull short clips out of a long video, build a shot list or contact sheet, cut
-  footage to the beat of a track, reframe landscape footage to 9:16, or render an
-  edit from timecodes. Also use when someone has a teaser, trailer, event recap or
-  interview and wants social cutdowns from it, or asks for an EDL, edit list or
-  shot inventory.
+  The hands-on cutting tools of reelsmith: log camera originals, find shots, verify
+  in-points, map and shorten music, cut to the beat one frame early, reframe to any
+  aspect, render, hand over a Premiere XML linked to the originals, and measure an
+  editor's re-edit. Use for a single concrete task ("log this footage", "what shots
+  are in this file", "cut this to the beat", "shorten this track to 100 seconds",
+  "make an XML", "what did I change in my re-edit"). For a whole edit from intake to
+  delivery, use reelsmith.
 ---
 
 # Reel cut
@@ -49,7 +49,16 @@ Record what probing says about each original: frame rate (50p and 59.94p origina
 give true slow motion on a 25p timeline), whether it carries sound, and its embedded
 timecode. They all feed the edit list and the XML.
 
-## 2. Detect shots
+## 2. Log, then detect shots inside long files
+
+Many originals: log them as a set first.
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/logsheet.py /shoot/CamA /shoot/CamB --out log/
+```
+
+Contact sheets in recording order, every tile labelled `CODE m:ss`, plus an index
+and `clips.json`.
 
 Camera originals are usually one take per file, so a file is often a shot. Run
 detection on the long ones: continuous coverage, a multicam recording, or a
@@ -98,18 +107,26 @@ can walk out of the crop halfway through a clip; a slow-motion clip covers less
 source time than its length suggests; a sprint can leave an empty lane by the last
 frame. None of that is visible in a single in-point frame.
 
-## 4. Cut to beat, if there is music
+## 4. Music: map it, shorten it, cut to it
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/beats.py MUSIC --fps 25 --every 4
+python ${CLAUDE_PLUGIN_ROOT}/scripts/beats.py MUSIC --fps 25 --out beats.json
+python ${CLAUDE_PLUGIN_ROOT}/scripts/music_cut.py MUSIC --beats beats.json --suggest 95 120
+python ${CLAUDE_PLUGIN_ROOT}/scripts/music_cut.py MUSIC --beats beats.json --keep bar:1-44,bar:105-end --out cut.wav
+python ${CLAUDE_PLUGIN_ROOT}/scripts/beats.py cut.wav --fps 25 --out cut_beats.json
 ```
 
-Returns tempo, a beat grid, and cut points already snapped to whole frames.
-`clip_durations` drops straight into an edit list.
+`beats.py` tracks the beats (generated music drifts), puts them on the audible
+transient, finds downbeats, bars and sections, and gives cut frames **one frame
+before each beat**: audio follows video. `music_cut.py` shortens a track by whole
+sections, downbeat to downbeat, with an equal-power cross-fade.
 
-Do not put every cut on a beat for a whole reel — it reads as mechanical. Hold a
-shot through a beat where the picture earns it; the held shot is what makes the
-pattern legible.
+In the edit list, set `"beat_map": "cut_beats.json", "lead": 1` and give lengths in
+`beats`; every tool then places the cuts the same way (`edl.md`).
+
+Do not put every cut on the same beat count. Runs of one and two beats, then a hold
+of four to eight: the held shot is what makes the pattern legible
+(`../reelsmith/references/craft.md`).
 
 ## 5. Write the edit list, then render from it
 
@@ -181,3 +198,13 @@ you Regular when you asked for Bold Condensed.
 
 Cap it at about 1.5 seconds. A static card is where completion rate dies, and if it
 needs longer to read it has too much on it.
+
+## 9. Measure an editor's re-edit
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/review_xml.py reedit.xml --edl edl.json --beats beats.json --out review.md
+```
+
+From a Premiere FCP7 XML export: cut timing against the beat in frames, shot lengths
+in beats, what was kept, dropped, reordered and trimmed, punch-ins, speed, extra
+layers and the music edit. See `../reelsmith/references/review.md`.

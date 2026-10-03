@@ -104,6 +104,51 @@ def frames(d, fps=25):
     return round(d * fps) / fps
 
 
+# ------------------------------------------------------------ beat-driven timing
+def resolve_beats(edl, edl_path=None):
+    """Turn clip lengths given in beats into frame-exact durations, in place.
+
+    An edit list may carry  "beat_map": "beats.json"  (beats.py output for the music
+    AS IT SITS ON THE TIMELINE) and  "lead": 1 . A clip then gives "beats": N instead
+    of "dur". Cuts fall on beats.json's beat frames minus `lead` frames: the picture
+    cut comes one frame before the beat, because audio follows video. A cut exactly
+    on the beat reads as late.
+
+    The first clip starts at frame 0 and runs to the cut before beat `start_beat`
+    (default: the first downbeat) plus its beats. "beats": "end" runs to the end of
+    the music. Clips that already have "dur" keep it and still move the cursor.
+    """
+    bm = edl.get("beat_map")
+    if not bm:
+        return edl
+    if edl_path and not os.path.isabs(bm):
+        bm = os.path.join(os.path.dirname(os.path.abspath(edl_path)), bm)
+    b = json.load(open(bm, encoding="utf-8"))
+    fps = edl.get("fps", b.get("fps", 25))
+    lead = int(edl.get("lead", 1))
+    frames_ = [int(round(x["t"] * fps)) for x in b["beats"]]
+    end = int(round(b["duration"] * fps))
+    for reel in edl["reels"]:
+        k = reel.get("start_beat")
+        if k is None:
+            k = next((i for i, x in enumerate(b["beats"]) if x.get("downbeat")), 0)
+        pos = 0
+        for j, c in enumerate(reel["clips"]):
+            if "beats" in c and "dur" not in c:
+                if c["beats"] == "end":
+                    cut = end
+                else:
+                    k += int(c["beats"])
+                    cut = end if k >= len(frames_) else max(frames_[k] - lead, pos + 1)
+                c["dur"] = (cut - pos) / fps
+                c["cut_frame"] = cut
+            pos += int(round(c["dur"] * fps))
+            if "beats" not in c:            # keep the beat cursor near the timeline
+                while k + 1 < len(frames_) and frames_[k + 1] - lead <= pos:
+                    k += 1
+    return edl
+
+
 # ------------------------------------------------------------ camera originals
 def probe_source(ffprobe, path):
     """What the XML and the renderer need from a camera original: exact frame rate,

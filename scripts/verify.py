@@ -44,6 +44,8 @@ def font(size):
 
 def check_edl(ff, fp, edl_path, out, source=None):
     edl = json.load(open(edl_path, encoding="utf-8"))
+    from rs_common import resolve_beats
+    resolve_beats(edl, edl_path)
     fps = edl.get("fps", 25)
     W, H = edl.get("width", 1080), edl.get("height", 1920)
     TW, TH = 176, int(176 * H / W)

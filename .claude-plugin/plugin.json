@@ -1,7 +1,7 @@
 {
   "name": "reelsmith",
-  "version": "1.1.0",
-  "description": "Step-gated pipeline for turning camera originals into finished short-form vertical video, or into a Premiere sequence linked to those originals. Walks concept, branding, shot analysis, colour, captions, music and render, stopping for a decision at every step.",
+  "version": "2.0.0",
+  "description": "Video editing from camera originals to a finished cut: social or long-form, vertical or horizontal, beat edit or story edit. Starts with a five-question intake, logs footage, maps and shortens music, cuts one frame before the beat, and delivers a render or a Premiere XML linked to the originals. Learns from the editor's re-edit.",
   "author": {
     "name": "JahooClou"
   },
@@ -9,14 +9,20 @@
   "repository": "https://github.com/JahooClou/reelsmith",
   "license": "MIT",
   "keywords": [
-    "video",
-    "shortform",
-    "reels",
-    "tiktok",
-    "shorts",
+    "aftermovie",
+    "beat-edit",
+    "colour-grading",
+    "documentary",
+    "editing",
     "ffmpeg",
     "lut",
-    "colour-grading",
-    "editing"
+    "premiere",
+    "reels",
+    "shortform",
+    "shorts",
+    "tiktok",
+    "video",
+    "xml",
+    "youtube"
   ]
 }

@@ -1,20 +1,31 @@
 # -*- coding: utf-8 -*-
-"""Estimate tempo and a beat grid from a music bed, snapped to frame boundaries.
+"""Beats, downbeats, bars and sections of a music bed, and cut points on frames.
 
-  python beats.py MUSIC.mp3 --fps 25
-  python beats.py MUSIC.wav --fps 25 --every 4 --out beats.json
+  python beats.py MUSIC.wav --fps 25 --out beats.json
+  python beats.py MUSIC.wav --fps 25 --lead 1 --every 2 --out beats.json
 
-Uses spectral flux onset detection and autocorrelation for tempo, so it needs only
-numpy and ffmpeg — no audio library to install.
+What it does, in order:
+  1. onset envelope (spectral flux), fine tempo estimate over 60-200 BPM
+  2. beat TRACKING by dynamic programming, so a track that drifts (128 -> 133 BPM
+     over three minutes is common in generated music) stays on the grid; a fixed
+     grid from one tempo is several frames off by the end
+  3. each beat moved onto the audible transient (-20/+70 ms), because the tracker
+     sits on the smoothed envelope, 30-40 ms ahead of the hit
+  4. downbeats: the beat phase whose bar lines carry the kick and the section
+     changes
+  5. per-bar loudness and section boundaries, so the structure (intro, build,
+     drop, break, outro) can be read before anything is cut
+  6. cut frames = beat frame - LEAD. Picture cuts land one frame BEFORE the beat:
+     audio follows video. A cut exactly on the beat reads as late.
 
---every N returns a cut grid on every Nth beat, which is the usual working unit:
-every 2 beats for fast montage, every 4 for a calmer pace.
-
-Cutting on every single beat for a whole reel reads as mechanical. Vary it, and
-hold one shot through a beat where the picture earns it — the held shot is what
-makes the pattern legible.
+Writes beats.json:
+  beats    [{t, frame, bar, beat_in_bar, downbeat}]
+  bars     [{n, t, frame, db}]          one entry per bar
+  sections [{start_bar, t, db, kind}]   kind: quiet / mid / loud, from loudness
+  cuts     frames to cut on (every Nth beat, minus lead)
+Only numpy and ffmpeg are needed.
 """
-import argparse, json, os, subprocess, sys, tempfile
+import argparse, json, math, os, subprocess, sys, tempfile, wave
 from rs_common import find_ffmpeg
 
 try:
@@ -22,78 +33,103 @@ try:
 except ImportError:
     sys.exit("needs numpy:  pip install numpy")
 
-SR = 22050
-HOP = 512
-NFFT = 1024
+SR = 12000          # analysis rate: enough for kick, snare and hats
+HOP = 64            # 5.3 ms envelope resolution
+NFFT = 512
 
 
-def decode(ff, path):
-    """Mono float32 at SR, via a temp WAV so we do not depend on pipe behaviour."""
+def decode(ff, path, sr=SR):
     tmp = tempfile.mktemp(suffix=".wav")
     subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-y", "-i", path,
-                    "-ac", "1", "-ar", str(SR), "-f", "wav", tmp],
-                   check=True, capture_output=True)
-    import wave
+                    "-ac", "1", "-ar", str(sr), "-f", "wav", tmp], check=True, capture_output=True)
     with wave.open(tmp, "rb") as w:
-        n = w.getnframes()
-        raw = w.readframes(n)
-        width = w.getsampwidth()
+        raw = w.readframes(w.getnframes())
     os.unlink(tmp)
-    dt = {1: np.int8, 2: np.int16, 4: np.int32}.get(width, np.int16)
-    x = np.frombuffer(raw, dtype=dt).astype(np.float32)
-    return x / float(np.iinfo(dt).max)
+    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def onset_envelope(x):
-    win = np.hanning(NFFT).astype(np.float32)
+def envelopes(x):
     n = 1 + (len(x) - NFFT) // HOP
-    if n < 4:
-        sys.exit("audio too short")
-    spec = np.empty((n, NFFT // 2 + 1), dtype=np.float32)
-    for i in range(n):
-        seg = x[i * HOP:i * HOP + NFFT] * win
-        spec[i] = np.abs(np.fft.rfft(seg))
-    spec = np.log1p(spec * 10.0)
-    flux = np.diff(spec, axis=0)
-    flux[flux < 0] = 0.0                    # rising energy only
-    env = flux.sum(axis=1)
-    env -= env.mean()
-    return env / (env.std() + 1e-9)
+    idx = np.arange(NFFT)[None, :] + HOP * np.arange(n)[:, None]
+    win = np.hanning(NFFT).astype(np.float32)
+    S = np.log1p(10 * np.abs(np.fft.rfft(x[idx] * win, axis=1)))
+    f = np.fft.rfftfreq(NFFT, 1 / SR)
+    fl = np.diff(S, axis=0)
+    fl[fl < 0] = 0
+    def norm(e):
+        e = e - e.mean()
+        return e / (e.std() + 1e-9)
+    return norm(fl.sum(1)), norm(fl[:, f < 200].sum(1))
 
 
-def tempo(env, lo=70, hi=180):
-    """Autocorrelate the onset envelope; peak inside a plausible BPM band."""
-    fps_env = SR / HOP
+def tempo(env, fe, lo=60, hi=200):
+    """Autocorrelation with a log-normal prior centred on 120 BPM (picks the tactus
+    rather than a half or double), then a fine comb search around the winner."""
     ac = np.correlate(env, env, mode="full")[len(env) - 1:]
-    lag_lo = int(fps_env * 60.0 / hi)
-    lag_hi = int(fps_env * 60.0 / lo)
-    band = ac[lag_lo:lag_hi]
-    if band.size == 0:
-        return 120.0
-    lag = lag_lo + int(np.argmax(band))
-    return float(60.0 * fps_env / lag)
+    lags = np.arange(int(fe * 60 / hi), int(fe * 60 / lo) + 1)
+    bpms = 60 * fe / lags
+    w = np.exp(-0.5 * (np.log2(bpms / 120.0) / 0.9) ** 2)
+    coarse = float(bpms[int(np.argmax(ac[lags] * w))])
+    best = (-1e18, coarse)
+    for bpm in np.arange(coarse - 4, coarse + 4, 0.05):
+        per = 60 / bpm * fe
+        score = max(env[np.arange(off, len(env), per).astype(int)].mean()
+                    for off in np.linspace(0, per, 24, endpoint=False))
+        if score > best[0]:
+            best = (score, bpm)
+    return best[1]
 
 
-def phase(env, bpm):
-    """Best offset for a pulse train at this tempo."""
-    fps_env = SR / HOP
-    period = 60.0 / bpm * fps_env
-    best, best_score = 0.0, -1e18
-    for off in np.arange(0, period, max(period / 48.0, 1.0)):
-        idx = np.arange(off, len(env), period).astype(int)
-        idx = idx[idx < len(env)]
-        score = env[idx].sum()
-        if score > best_score:
-            best_score, best = score, off
-    return best / fps_env
+def track(env, fe, bpm, tight=400.0):
+    """Ellis dynamic-programming beat tracker: follows gradual tempo drift."""
+    per = 60 / bpm * fe
+    k = np.exp(-0.5 * (np.arange(-6, 7) / 2.0) ** 2)
+    e = np.convolve(env, k / k.sum(), "same")
+    n = len(e)
+    cum = np.zeros(n)
+    back = -np.ones(n, int)
+    lo, hi = int(per * 0.5), int(per * 2)
+    for i in range(n):
+        a, b = max(0, i - hi), i - lo
+        if b <= a:
+            cum[i] = e[i]
+            continue
+        prev = np.arange(a, b)
+        sc = cum[prev] - tight * np.log((i - prev) / per) ** 2
+        j = int(np.argmax(sc))
+        cum[i] = e[i] + sc[j]
+        back[i] = prev[j]
+    i = n - int(per) + int(np.argmax(cum[n - int(per):]))
+    out = []
+    while i >= 0:
+        out.append(i)
+        i = back[i]
+    return np.array(out[::-1]) / fe
+
+
+def to_transient(x, t, before=0.02, after=0.07):
+    """Move a beat onto the steepest rise of the waveform envelope nearby.
+
+    The tracker works on a smoothed envelope and lands 30-40 ms BEFORE the audible
+    hit, so the search window looks mostly forward."""
+    a = max(0, int((t - before) * SR))
+    seg = np.abs(x[a:int((t + after) * SR)])
+    k = max(1, int(0.003 * SR))
+    if len(seg) <= 2 * k:
+        return t
+    env = np.convolve(seg, np.ones(k) / k, "same")
+    d = env[k:] - env[:-k]
+    return (a + int(np.argmax(d)) + k // 2) / SR
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("music")
     ap.add_argument("--fps", type=float, default=25.0)
-    ap.add_argument("--every", type=int, default=2, help="cut every Nth beat")
-    ap.add_argument("--limit", type=float, default=0.0, help="stop after N seconds")
+    ap.add_argument("--every", type=int, default=1, help="cut grid on every Nth beat")
+    ap.add_argument("--lead", type=int, default=1,
+                    help="frames the picture cut leads the beat (audio follows video)")
+    ap.add_argument("--bpm", type=float, help="tempo hint, if the estimate halves or doubles")
     ap.add_argument("--out")
     ap.add_argument("--ffmpeg")
     a = ap.parse_args()
@@ -101,41 +137,70 @@ def main():
     ff, _ = find_ffmpeg(a.ffmpeg)
     if not ff:
         sys.exit("ffmpeg not found")
-
     x = decode(ff, a.music)
     dur = len(x) / SR
-    env = onset_envelope(x)
-    bpm = tempo(env)
-    off = phase(env, bpm)
-    period = 60.0 / bpm
+    fe = SR / HOP
+    env, envl = envelopes(x)
+    bpm = a.bpm or tempo(env, fe)
+    raw = track(env, fe, bpm)
+    # per-beat transient offsets are noisy (a vocal or a hat can win), so apply a
+    # rolling median of them: every cut keeps the same lead against the drums
+    off = np.array([to_transient(x, t) - t for t in raw])
+    sm = np.array([np.median(off[max(0, i - 4):i + 5]) for i in range(len(off))])
+    beats = [float(b) for b in raw + sm if b >= 0]
+    ib = np.diff(beats)
 
-    end = a.limit if a.limit > 0 else dur
-    beats, t = [], off
-    while t < end:
-        beats.append(round(t, 4))
-        t += period
+    # downbeat phase: low-band onset strength on the bar lines plus loudness jumps there
+    rms = np.array([math.sqrt(float(np.mean(x[int(beats[i] * SR):int(beats[i + 1] * SR)] ** 2)) + 1e-12)
+                    for i in range(len(beats) - 1)] + [1e-6])
+    db = 20 * np.log10(rms)
+    jump = np.maximum(np.diff(np.concatenate([[db[0]], db])), 0)
+    def at(e, t):
+        i = int(t * fe)
+        return float(e[max(0, i - 3):i + 4].max()) if i < len(e) else 0.0
+    score = [sum(at(envl, beats[i]) + 0.5 * jump[i] for i in range(ph, len(beats), 4)) for ph in range(4)]
+    phase = int(np.argmax(score))
 
-    frame = 1.0 / a.fps
-    cuts = [round(round(b / frame) * frame, 4) for b in beats[::a.every]]
-    gaps = [round(cuts[i + 1] - cuts[i], 3) for i in range(len(cuts) - 1)]
+    fr = lambda t: int(round(t * a.fps))
+    out_beats = []
+    for i, t in enumerate(beats):
+        bar = (i - phase) // 4 + 1
+        out_beats.append({"t": round(t, 4), "frame": fr(t), "bar": bar,
+                          "beat_in_bar": (i - phase) % 4 + 1, "downbeat": (i - phase) % 4 == 0})
+    bars = []
+    for i in range(phase, len(beats) - 4, 4):
+        seg = x[int(beats[i] * SR):int(beats[i + 4] * SR)]
+        bars.append({"n": len(bars) + 1, "t": round(beats[i], 4), "frame": fr(beats[i]),
+                     "db": round(20 * math.log10(math.sqrt(float(np.mean(seg ** 2))) + 1e-12), 1)})
+
+    # sections: a bar whose loudness steps by 2.5 dB or more starts a new section
+    sections = []
+    lv = [b["db"] for b in bars]
+    hi_db, lo_db = (max(lv), min(lv)) if lv else (0, 0)
+    def kind(v):
+        r = (v - lo_db) / max(hi_db - lo_db, 1e-6)
+        return "loud" if r > 0.75 else ("mid" if r > 0.4 else "quiet")
+    for j, b in enumerate(bars):
+        if j == 0 or abs(b["db"] - bars[j - 1]["db"]) >= 2.5:
+            sections.append({"start_bar": b["n"], "t": b["t"], "db": b["db"], "kind": kind(b["db"])})
+
+    cuts = sorted({max(0, b["frame"] - a.lead) for b in out_beats[phase::a.every]})
+    res = {"file": os.path.abspath(a.music), "duration": round(dur, 3), "fps": a.fps,
+           "bpm": round(60 / float(np.median(ib)), 2), "bpm_start": round(60 / float(np.median(ib[:16])), 2),
+           "bpm_end": round(60 / float(np.median(ib[-16:])), 2), "lead_frames": a.lead,
+           "beats": out_beats, "bars": bars, "sections": sections, "cuts": cuts}
+    out = a.out or "beats.json"
+    json.dump(res, open(out, "w", encoding="utf-8"), indent=1)
 
     print(f"duration   {dur:.2f}s")
-    print(f"tempo      {bpm:.1f} BPM   (beat every {period:.3f}s)")
-    print(f"first beat {off:.3f}s")
-    print(f"beats      {len(beats)}")
-    print(f"cuts every {a.every} beats -> {len(cuts)}, spacing ~{period*a.every:.3f}s")
-    print(f"snapped to {a.fps} fps, so each cut lands on a whole frame")
-    print("\nfirst cuts: " + ", ".join(f"{c:.2f}" for c in cuts[:12]))
-
-    res = {"file": a.music, "duration": round(dur, 3), "bpm": round(bpm, 2),
-           "first_beat": round(off, 4), "beat_period": round(period, 4),
-           "fps": a.fps, "every": a.every, "beats": beats, "cuts": cuts,
-           "clip_durations": gaps}
-    out = a.out or "beats.json"
-    json.dump(res, open(out, "w", encoding="utf-8"), indent=2)
-    print(f"\n-> {out}")
-    print("clip_durations feeds straight into an edit list; they are already")
-    print("frame-aligned, so the concat will hold constant frame rate.")
+    print(f"tempo      {res['bpm']} BPM (start {res['bpm_start']}, end {res['bpm_end']})"
+          + ("   DRIFTS: use the tracked beats, not a fixed grid" if abs(res['bpm_end'] - res['bpm_start']) > 1 else ""))
+    print(f"beats      {len(beats)}, bars {len(bars)}, first downbeat {beats[phase]:.3f}s")
+    print("sections:")
+    for s in sections:
+        print(f"  bar {s['start_bar']:3d}  {s['t']:7.2f}s  {s['db']:6.1f} dB  {s['kind']}")
+    print(f"cuts       {len(cuts)} on every {a.every} beat(s), {a.lead} frame(s) before the beat")
+    print(f"-> {out}")
 
 
 if __name__ == "__main__":
