@@ -95,7 +95,8 @@ something else entirely. Nothing catches it until the render.
 python ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py ORIGINAL --scan 106 124 --step 2 --out take.jpg
 
 # then check the whole edit list as it will be seen: first, middle and last frame
-# of every clip, cut from its original, through its 9:16 window, at its speed
+# of every clip, cut from its original, through its 9:16 window, at its speed,
+# plus every moment used twice (--repeats lists them without rendering)
 python ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --edl edl.json --out check.jpg
 ```
 

@@ -226,6 +226,43 @@ def clip_key(clip):
     return f"{clip['src']}@{clip['t']:.2f}" if clip.get("src") is not None else f"{clip['t']:.2f}"
 
 
+def find_repeats(edl, spans, window=5.0):
+    """Moments used twice: two clips from the same source whose source ranges overlap
+    or come within `window` seconds of each other. A repeated moment reads as padding,
+    even in a recap.
+
+    `spans` maps id(clip) to the source seconds the clip shows. Neighbours on the
+    timeline that continue the same take (a stepped punch-in, a take cut into slices)
+    count as one shot and are not reported. A clip with "allow_repeat": true is skipped:
+    set it only when the editor asked for that callback.
+    Returns [(reel, i, j, src, t_i, t_j)] with 1-based clip numbers."""
+    out = []
+    for reel in edl["reels"]:
+        clips = reel["clips"]
+        groups = []                             # runs of neighbours from one take
+        for i, c in enumerate(clips):
+            src = source_path(edl, c)
+            a, b = c["t"], c["t"] + spans.get(id(c), c.get("dur", 0))
+            skip = bool(c.get("allow_repeat"))
+            g = groups[-1] if groups else None
+            if (g and not skip and not g["skip"] and src == g["src"]
+                    and a <= g["b"] + window and b >= g["a"] - window):
+                g["a"], g["b"] = min(g["a"], a), max(g["b"], b)
+                g["clips"].append(i)
+            else:
+                groups.append(dict(src=src, a=a, b=b, clips=[i], skip=skip))
+        for x in range(len(groups)):
+            for y in range(x + 1, len(groups)):
+                g, h = groups[x], groups[y]
+                if g["src"] != h["src"] or g["skip"] or h["skip"]:
+                    continue
+                if h["a"] <= g["b"] + window and h["b"] >= g["a"] - window:
+                    i, j = g["clips"][0], h["clips"][0]
+                    out.append((reel.get("name", ""), i + 1, j + 1, g["src"],
+                                clips[i]["t"], clips[j]["t"]))
+    return out
+
+
 def speed_of(clip, src_fps, fps):
     """Source seconds per timeline second.
 

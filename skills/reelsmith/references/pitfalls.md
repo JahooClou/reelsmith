@@ -207,6 +207,10 @@ a phone screen.
 Only the last is genuinely short of resolution. The usual constraint is composition,
 not pixels.
 
+Probe device and screen recordings too. A helmet-camera stream described as 4K was
+recorded at 720p, and its thermal picture at 320×240. That decides whether it can
+fill a frame or only sit as an inset.
+
 ---
 
 ## 13. ffmpeg's `eq` filter inverts gamma
@@ -346,6 +350,26 @@ from the start of that file, and link those in the XML. `premiere_xml.py` refuse
 source already at the delivery size or inside a render folder. If an export really
 is all there is, say so and use `--allow-derived`, knowingly.
 
+**When the old edit exists and so does the shoot folder, but nobody knows which take
+each shot came from,** find the sources by image rather than by eye. Three passes
+worked on a 22-shot film against 272 clips:
+
+1. Thumbnail every source once (one small frame every half second or so), and match
+   each old shot against them with a grade-insensitive descriptor: normalised
+   luminance plus gradient magnitude at about 48×27. The old edit's grade then does
+   not matter.
+2. Verify the best candidates with SIFT and RANSAC on full frames decoded from the
+   source at the candidate time.
+3. Align the whole old shot against the source to recover the in-point *and* the
+   speed. Try the speeds the camera rate allows (100%, 50% from 50p, 25% from 100p);
+   slow motion in an old edit is usually one of them.
+
+Label every match sure, likely or check, and put the check sheets (old frame beside
+source frame, start, middle and end) in front of the editor. The result was 14 sure,
+4 likely, 3 to check and 1 not in the folder. Anything the old edit added in post
+(fire and ember overlays, a graphic, an inset) has no source and will not match;
+say so rather than forcing a match.
+
 ---
 
 ## 21. `colorlevels` on 10-bit originals returns a black picture
@@ -420,3 +444,46 @@ the audible hit, and a per-beat "snap to transient" jumps to vocals or hats.
 
 **Fix:** move beats by a rolling median of the per-beat transient offsets, so every
 cut keeps the same lead against the drums (`beats.py` does this).
+
+---
+
+## 27. The same moment used twice
+
+**What happens:** a long beat edit runs short of material in its last third, and
+the cut quietly borrows: the same take a few seconds later, or the build-up's best
+shot again in the recap. Each reuse looks fine on its own row of the edit list.
+
+**Why it bites:** the viewer remembers the moment, not the row. An editor reads a
+repeated moment as padding, and a reframe or a speed change does not disguise it.
+One 90-shot test edit reused 26 moments; every one had to be replaced.
+
+**Fix:** `verify.py --edl edl.json --repeats` lists every pair of clips from one
+original whose source ranges come within 5 s of each other. Neighbouring slices of
+one take (a stepped punch-in) count as one shot. Run it before every render and
+every XML. Mark a clip `"allow_repeat": true` only when the editor asked for that
+callback.
+
+---
+
+## 28. Interval timelapses stored with repeated frames
+
+Some cameras and apps store an interval timelapse as a normal video in which every
+captured image is repeated many times (one was 15 copies per image). Slowed down,
+sped up or cut on a frame count, it stutters, because the steps fall between the
+repeats.
+
+**Fix:** keep only the frames that change, then retime:
+`-vf mpdecimate,setpts=N/FRAME_RATE/TB`. Check the frame count before and after;
+it should fall by about the repeat factor.
+
+---
+
+## 29. Screen recordings that show secrets
+
+Settings and admin screens recorded for a product film carry access tokens, server
+addresses, staff e-mail addresses and other people's names. They pass a quick look
+because they are small text in a corner.
+
+**Fix:** when you log screen recordings, read every settings, login and admin screen
+at full resolution and list what must be blurred or avoided, with timecodes. Treat
+it like a face that cannot be shown: decide before the cut, not after delivery.

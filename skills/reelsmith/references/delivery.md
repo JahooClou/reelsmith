@@ -26,11 +26,19 @@ LUFS" is common practice, not a published YouTube figure. Mix so dialogue and
 impacts are clear and the music does not clip; around −14 LUFS integrated with peaks
 below −1 dBTP is a safe starting point.
 
+When the picture is rendered somewhere else (After Effects, Premiere), render a
+mezzanine (ProRes) and finish here: take the sound from the original music file, not
+from the application's render, and encode it once, in the same pass as the picture,
+with `-frames:v` set to the planned length.
+
 Check the file before handing it over:
 
 - count the frames, not just the duration (`ffprobe -count_frames`)
 - `avg_frame_rate` equals the project rate
 - the audio is the full length
+- the integrated loudness and true peak (`loudnorm=print_format=summary`)
+- one frame from the middle of every shot, numbered, as a sheet: the last look at
+  the cut as delivered
 
 ## Sequence for the editing suite
 

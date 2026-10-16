@@ -79,7 +79,9 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/ffmpeg_tools.py --probe ORIGINAL [ORIGINAL 
 
 Record per camera: resolution, frame rate (50p and 59.94p give clean slow motion on
 a 25p timeline), sound, embedded timecode, orientation. If you were handed an export
-of an earlier edit instead, ask for the originals behind it. Work from an export
+of an earlier edit instead, ask for the originals behind it; if the shoot folder exists
+but nobody knows which take each shot came from, match them by image
+(`references/pitfalls.md` §20). Work from an export
 only when the originals do not exist, and say so (`premiere_xml.py` refuses one
 without `--allow-derived`).
 
@@ -200,6 +202,8 @@ The rhythm rules that matter most (all in `craft.md`):
   short speed-up into a cut, slow motion on a face or a peak, a held reaction.
 - Every shot earns its place: one idea per shot, and no two adjacent shots that say
   the same thing.
+- **Never the same moment twice**, not even in a recap. Slices of one take (a stepped
+  punch-in) are one shot.
 
 Check it as it will be seen:
 
@@ -207,8 +211,9 @@ Check it as it will be seen:
 python ${CLAUDE_PLUGIN_ROOT}/scripts/verify.py --edl edl.json --out check.jpg
 ```
 
-First, middle and last frame of every clip, cropped and at its speed. Fix the list,
-not the render.
+First, middle and last frame of every clip, cropped and at its speed, plus a list of
+any moment used twice (`--repeats` gives the list alone). Fix the list, not the
+render.
 
 **Gate:** the cut as a table (shot, clip, in, length, what it is) plus the check
 sheets. Expect changes; that is the job.
@@ -290,7 +295,7 @@ leaves open.
 | `ffmpeg_tools.py` | find ffmpeg, report what the build can do, probe media |
 | `logsheet.py` | log many originals: sampled frames, contact sheets, index |
 | `shots.py` | shot detection inside one long file |
-| `verify.py` | dense scan of a take; check every clip of an edit list as seen |
+| `verify.py` | dense scan of a take; check every clip of an edit list as seen; list moments used twice |
 | `beats.py` | tracked beats, downbeats, bars, sections; cut frames one frame early |
 | `music_cut.py` | shorten a track on downbeats; ranks the best splices |
 | `balance.py`, `color.py` | per-shot balance and shared look; per-camera LUTs |

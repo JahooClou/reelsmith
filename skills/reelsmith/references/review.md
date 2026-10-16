@@ -48,6 +48,8 @@ changed.
 | 3 Oct 2026 | Inserted pieces get designed transitions and SFX | film-burn overlays around the slideshow, a shutter click and beep under every photo | `craft.md` §5 and §6 |
 | 3 Oct 2026 | Reorder in blocks, keep the order inside sections | 24% of shot pairs swapped; 54 of 82 shots kept, 10 new moments from the same files | `craft.md` §3 |
 | 3 Oct 2026 | Photo inserts: open defocused, rack to sharp; the AF point sits on the face | editor's corrections to the viewfinder slideshow | `craft.md` §5 |
+| 3 Oct 2026 | Photo inserts change one frame before the beat too; AF beep at focus lock, shutter click on the beat | slideshow re-timed to the re-edit: 12 photos of 10 to 23 frames, every change at beat − 1 | `craft.md` §5 |
+| 14 Oct 2026 | Never use the same moment twice, not even in a recap; slices of one take count as one shot | 16:9 test edit, 90 shots: the editor rejected 26 reused moments (same take within seconds, recap repeats) and had all of them replaced | `verify.py --repeats`, `craft.md` §2, `pitfalls.md` §27 |
 
 ## Reading the timing histogram
 

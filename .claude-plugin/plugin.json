@@ -1,6 +1,6 @@
 {
   "name": "reelsmith",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Video editing from camera originals to a finished cut: social or long-form, vertical or horizontal, beat edit or story edit. Starts with a five-question intake, logs footage, maps and shortens music, cuts one frame before the beat, and delivers a render or a Premiere XML linked to the originals. Learns from the editor's re-edit.",
   "author": {
     "name": "JahooClou"

@@ -33,9 +33,12 @@ a working editor's re-edit of a reelsmith cut and are measured, not assumed; see
   action, then the drop on the strongest shot.
 - **Hold where the face is still being read.** Exhaustion, joy and embraces get
   length; equipment and wide action do not.
-- **Repeat with variation.** The same take can come back later, reframed or slowed
-  (the editor reused one relay take three times, at 100%, punched in, and in
-  slices). A repeat with no new information is padding.
+- **Never the same moment twice. (editor)** A moment already seen reads as padding,
+  even in a recap section and even reframed or slowed. Recap with new angles of the
+  same action instead. One take cut into neighbouring slices (a stepped punch-in)
+  counts as one shot; the same long file is fine at a moment well away from the first
+  (more than about 5 s). The first test edit after this rule reused 26 moments, and
+  the editor had every one replaced. `verify.py --edl edl.json --repeats` lists them.
 
 ## 3. Order
 
@@ -81,7 +84,9 @@ a working editor's re-edit of a reelsmith cut and are measured, not assumed; see
 - **Inserted pieces** (a photo slideshow, an animated title) should look like they
   belong to the film. For a camera-viewfinder photo insert: each photo opens
   defocused and racks to sharp, the AF point sits on the face (the visor when a mask
-  hides it), and a shutter closes on the cut. (editor)
+  hides it), and a shutter closes on the cut. (editor) Each photo changes one frame
+  before its beat, like any other cut; the AF beep sits where focus locks, the
+  shutter click on the beat.
 - **Overlays on V2** (a quick insert over the cut) let a second image punch in for
   a few frames without breaking the music edit underneath.
 

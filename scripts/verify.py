@@ -5,6 +5,7 @@ out labelled so you can look at what you are actually about to use.
   python verify.py SOURCE --points points.json --out sheet.jpg
   python verify.py SOURCE --scan 106.0 124.0 --step 2 --out take.jpg
   python verify.py --edl edl.json --out check.jpg
+  python verify.py --edl edl.json --repeats
 
 points.json:
   [{"code": "CA14", "t": 116.6, "note": "child on shoulder"}, ...]
@@ -20,6 +21,11 @@ window and at its speed. A crop that loses the subject halfway through a clip, o
 slow-motion clip that runs into the next take, shows up here and nowhere else.
 Writes check_00.jpg, check_01.jpg ... beside --out, 18 clips a sheet.
 
+--edl also lists every moment used twice: two clips from one original whose source
+ranges come within 5 s of each other. Neighbouring slices of one take (a stepped
+punch-in) count as one shot. --repeats runs only that test and renders nothing; it
+exits 1 when it finds any.
+
 This exists because contact sheets sample mid-shot. On a twenty-second take the
 frame you liked can be ten seconds from the timecode you wrote down, and nothing
 catches that until the render.
@@ -27,7 +33,7 @@ catches that until the render.
 import argparse, json, math, os, shutil, sys
 from concurrent.futures import ThreadPoolExecutor
 from rs_common import (find_ffmpeg, run, tc, probe_source, source_path, speed_of,
-                       reframe, frames)
+                       reframe, frames, find_repeats)
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -42,7 +48,16 @@ def font(size):
         return ImageFont.load_default()
 
 
-def check_edl(ff, fp, edl_path, out, source=None):
+def report_repeats(edl, spans, window=5.0):
+    reps = find_repeats(edl, spans, window)
+    for reel, i, j, src, ti, tj in reps:
+        print(f"REPEAT {reel}: clip {j} ({tj:.2f}s) shows the moment clip {i} ({ti:.2f}s) "
+              f"already used, in {os.path.basename(src)}")
+    print(f"{len(reps)} repeated moments" if reps else "no moment used twice")
+    return reps
+
+
+def check_edl(ff, fp, edl_path, out, source=None, repeats_only=False):
     edl = json.load(open(edl_path, encoding="utf-8"))
     from rs_common import resolve_beats
     resolve_beats(edl, edl_path)
@@ -50,8 +65,9 @@ def check_edl(ff, fp, edl_path, out, source=None):
     W, H = edl.get("width", 1080), edl.get("height", 1920)
     TW, TH = 176, int(176 * H / W)
     tmp = out + "_frames"
-    shutil.rmtree(tmp, ignore_errors=True); os.makedirs(tmp)
-    infos, jobs, shots = {}, [], []
+    if not repeats_only:
+        shutil.rmtree(tmp, ignore_errors=True); os.makedirs(tmp)
+    infos, jobs, shots, spans = {}, [], [], {}
     for r in edl["reels"]:
         for c in r["clips"]:
             path = source_path(edl, c, source)
@@ -60,6 +76,7 @@ def check_edl(ff, fp, edl_path, out, source=None):
             si = infos[path]
             sp = speed_of(c, si["fps"], fps)
             span = frames(c["dur"], fps) * sp                 # source seconds shown
+            spans[id(c)] = span
             x0, y0, cw, ch, _ = reframe(si["w"], si["h"], W, H, c.get("cx", 0.5),
                                         c.get("cy", 0.5), c.get("z", 1.0))
             vf = (f"crop={int(round(cw))}:{int(round(ch))}:{int(round(x0))}:{int(round(y0))},"
@@ -71,6 +88,9 @@ def check_edl(ff, fp, edl_path, out, source=None):
                              "-i", path, "-frames:v", "1", "-vf", vf, "-q:v", "3",
                              os.path.join(tmp, f"{n:03d}_{j}.jpg")])
             shots.append((r["name"], c, sp, os.path.basename(path)))
+    reps = report_repeats(edl, spans)
+    if repeats_only:
+        return 1 if reps else 0
     with ThreadPoolExecutor(6) as ex:
         list(ex.map(run, jobs))
 
@@ -107,7 +127,9 @@ def main():
     ap.add_argument("--scan", nargs=2, type=float, metavar=("START", "END"))
     ap.add_argument("--step", type=float, default=2.0)
     ap.add_argument("--edl", help="check every clip of an edit list, cropped and timed")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--repeats", action="store_true",
+                    help="with --edl: only list moments used twice, render nothing")
+    ap.add_argument("--out")
     ap.add_argument("--cols", type=int, default=10)
     ap.add_argument("--ffmpeg")
     a = ap.parse_args()
@@ -116,7 +138,11 @@ def main():
     if not ff:
         sys.exit("ffmpeg not found")
     if a.edl:
-        return check_edl(ff, fp, a.edl, a.out, a.source)
+        if not (a.out or a.repeats):
+            sys.exit("give --out, or --repeats")
+        return check_edl(ff, fp, a.edl, a.out or "", a.source, a.repeats)
+    if not a.out:
+        sys.exit("give --out")
 
     if a.points:
         pts = json.load(open(a.points, encoding="utf-8"))
@@ -166,4 +192,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

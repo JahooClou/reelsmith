@@ -134,6 +134,11 @@ that from happening again.
   danger.
 - **Politicians and campaigns:** keep them out unless the story is about them. Real
   suffering must not become campaign imagery.
+- **An exclusion is a list, checked take by take.** When the brief says to keep
+  someone out, find the time window they were there, list every take inside it, and
+  check each at full resolution, backgrounds included. A contact-sheet glance let one
+  such take into a first cut; the editor caught it. Exclude only what the brief
+  names: the people around them usually stay.
 
 ## 9. Process checklist for a documentary reel
 

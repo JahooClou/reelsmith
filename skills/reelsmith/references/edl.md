@@ -65,6 +65,7 @@ frames, and the editor who receives the XML gets the full takes with their handl
 | `caption` | PNG filename in the captions directory; omit for a clean picture |
 | `text` | the caption text even when not burnt in, so it can be placed in an editor |
 | `note` | what the frame shows, so a reviewer can check without opening the file |
+| `allow_repeat` | `true` exempts this clip from the repeated-moment check (`verify.py --repeats`); only when the editor asked for that callback |
 | `music` | the bed, with `offset` in seconds into the file; goes on its own tracks in the XML |
 | `beat_map` | `beats.py` output for the music as it sits on the timeline; enables `beats` |
 | `lead` | frames each picture cut comes before its beat (default 1: audio follows video) |
