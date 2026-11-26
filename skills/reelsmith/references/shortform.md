@@ -56,6 +56,26 @@ on-message hook **[platform, ads]**.
 - **For an event film the place can come right after the hook.** Hook (one to three
   seconds), then the establishing shot, then the build (`craft.md` §3).
 
+## Matching a reference
+
+When the editor says "make it like this", the reference sets the look and the pace.
+They are measured separately.
+
+- **The look:** contact sheets of the whole reference, at least two frames a second
+  plus every cut. Write down, beat by beat: backgrounds and colours, type (face,
+  weight, case, size, where it sits), the caption style and how key words are marked,
+  layouts (full frame, cards, split screen), each graphic, the transitions and where
+  they land.
+- **The pace:** `pace.py reference.mp4 --words --sheet ref.jpg`. Hits per second
+  (anything new on screen: a cut, a flash, a punch-in, a whip, a graphic), cuts per
+  second, the longest stretch with nothing new, words per second and when the first
+  word lands. The 6 fps sheet of the first six seconds shows what lands on which word
+  in the hook.
+- **The match:** render a draft and run `pace.py reference.mp4 ours.mp4`. Hits per
+  second and the longest still stretch within about 20 % of the reference
+  **[practice]**. Cuts per second may differ when the reference gets its hits from
+  moves inside one shot, or ours from punch-ins.
+
 ## Retention
 
 - **[practice]** Reset the frame often: a new subject, a new scale or a new angle
@@ -89,7 +109,8 @@ Ways to loop:
   mute anyway.
 - One job per card: identify, state one fact, bridge, or give the outcome.
 - About three to eight words a line, held long enough to read twice. Never on a
-  face.
+  face: measure the faces on a clean render and let `captions.py --faces` place the
+  plates; `qc.py` fails any plate that still touches one.
 - Burn text in only on request. Otherwise hand it over with its timings so it can be
   placed per shot in the editor.
 

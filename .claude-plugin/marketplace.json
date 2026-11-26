@@ -8,7 +8,7 @@
     {
       "name": "reelsmith",
       "description": "Video editing from camera originals: five-question intake, logging, music mapping and shortening, cuts one frame before the beat, render or Premiere XML, and learning from the editor's re-edit.",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "source": "./",
       "author": {
         "name": "JahooClou"

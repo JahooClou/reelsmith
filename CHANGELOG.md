@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.2.0 (2026-11-26)
+
+Checking the result, not only the plan, and matching a reference's pace.
+
+- **`qc.py`: check the rendered file before it leaves.** Size, rate and length against
+  the edit list; black frames and stretches where nothing moves for 2 s; integrated
+  loudness, true peak, silence before the first sound and gaps in the sound; caption
+  plates on a face, outside the interface margins, or a face up under the app's top
+  bar; with `--speech`, each caption compared with the words said under it. FAIL
+  exits 1. `--sheet` draws faces, plates and margins on every flagged frame. Faces
+  come from YuNet (OpenCV Zoo, MIT), bundled in `scripts/models/` with its licence.
+- **`captions.py --faces`: plates place themselves off faces.** `qc.py --faces-out`
+  measures the faces on a clean render; each plate with `"y": "auto"` then takes the
+  first spot off every face inside the margins (bottom of the safe area, under the
+  chin, above the head, then up the frame), shrinking to 85 % and 72 %, then the
+  looser margins, then none. It never gives up the face; when nothing fits it says
+  so. Auto-placed plates also keep inside the side margins.
+- **`pace.py`: the pace of a reference, in numbers.** Hits per second (anything new
+  on screen), cuts per second (jump cuts included), average shot, the longest still
+  stretch and where it is, words per second and the first word; a 6 fps sheet of the
+  first six seconds. Given a reference and a cut, marks anything more than 20 % off.
+- `SKILL.md`: measure a named reference at intake, compare the draft's pace in step 6,
+  place plates off faces in step 7, run `qc.py` in step 8.
+- `shortform.md`: "Matching a reference" (look, pace, match).
+- `delivery.md`: what `qc.py` covers and what is still checked by hand.
+- `pitfalls.md` §30: faster-whisper picking CUDA without its libraries, and a newer
+  PyAV than it expects.
+
 ## 2.1.0 (2026-10-16)
 
 Lessons from the next round of live projects: a 16:9 beat edit built in After Effects,

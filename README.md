@@ -97,6 +97,8 @@ All under `scripts/`, all runnable standalone.
 | `logsheet.py` | log many originals: sampled frames, contact sheets in recording order, index |
 | `shots.py` | scene detection per segment, labelled contact sheet |
 | `verify.py` | render exact in-points, scan a long take, or check a whole edit list cropped and timed |
+| `pace.py` | measure a reference's pace (hits, cuts, longest still, words per second) and compare a cut to it |
+| `qc.py` | check the rendered file: format, black and frozen frames, loudness, gaps, captions on faces, caption against speech |
 | `balance.py` | per-shot balance + one shared look; the matching path |
 | `color.py` | measure, generate per-camera LUTs, before/after comparison |
 | `render.py` | edit list to finished mp4 from the camera originals: reframe, speed, per-clip colour, CFR |
@@ -104,7 +106,7 @@ All under `scripts/`, all runnable standalone.
 | `music_cut.py` | shorten a track on downbeats; ranks the best splices |
 | `premiere_xml.py` | edit list to FCP7 XML for Premiere Pro, linked to the camera originals; refuses exports |
 | `review_xml.py` | measure what an editor changed in their re-edit (FCP7 XML) |
-| `captions.py` | caption plates as PNGs, correct variable-font instances |
+| `captions.py` | caption plates as PNGs, correct variable-font instances, placed off faces |
 | `brand_extract.py` | palette from images, fonts and text from a PSD |
 
 ## Install
@@ -128,9 +130,14 @@ Then in Claude Code:
   have.
 - **Python 3.9+** with `Pillow` and `numpy`.
 - `psd-tools` only if reading PSD brand files.
+- `opencv-python` (4.8 or newer) for `qc.py` and `pace.py`. The face detector they use,
+  YuNet from OpenCV Zoo (MIT), ships in `scripts/models/` with its licence.
+- `faster-whisper` only for `qc.py --speech` and `pace.py --words`. It runs on the CPU;
+  set `RS_WHISPER_DEVICE=cuda` once the CUDA libraries are installed.
 
 ```bash
-pip install Pillow numpy psd-tools
+pip install Pillow numpy psd-tools opencv-python
+pip install faster-whisper        # optional
 ```
 
 ## Originals, always
@@ -166,6 +173,7 @@ python verify.py --edl edl.json --out check.jpg      # every clip, cropped and t
 python balance.py edl.json --out grade/              # per-shot balance + shared look
 python premiere_xml.py edl.json --out cut.xml --balance grade/   # for the editing suite
 python render.py edl.json --out out/ --balance grade/            # or a finished file
+python qc.py out/Recap_1080x1920.mp4 --edl edl.json --sheet qc.jpg  # check it before it leaves
 
 # the editor's version comes back as FCP7 XML
 python review_xml.py reedit.xml --edl edl.json --beats beats.json --out review.md

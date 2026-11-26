@@ -31,7 +31,10 @@ mezzanine (ProRes) and finish here: take the sound from the original music file,
 from the application's render, and encode it once, in the same pass as the picture,
 with `-frames:v` set to the planned length.
 
-Check the file before handing it over:
+Check the file before handing it over. `qc.py` does the measurable part (size,
+rate, length to the frame, black and frozen frames, loudness, true peak, gaps in the sound,
+captions on faces and outside the margins) and writes a sheet of what it flagged.
+The full list, for a file checked by hand (the first and last items are still yours):
 
 - count the frames, not just the duration (`ffprobe -count_frames`)
 - `avg_frame_rate` equals the project rate

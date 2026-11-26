@@ -487,3 +487,14 @@ because they are small text in a corner.
 **Fix:** when you log screen recordings, read every settings, login and admin screen
 at full resolution and list what must be blurred or avoided, with timecodes. Treat
 it like a face that cannot be shown: decide before the cut, not after delivery.
+
+## 30. faster-whisper on a machine set up for something else
+
+Two silent traps when transcribing for `qc.py --speech` or `pace.py --words`:
+
+- `device="auto"` picks CUDA whenever there is an NVIDIA card, then fails with
+  "cublas64_12.dll is not found" if the CUDA libraries are not installed. The
+  scripts use the CPU unless `RS_WHISPER_DEVICE=cuda` is set; a reel takes seconds.
+- faster-whisper reads files through PyAV, and a newer PyAV than it expects fails
+  with "open() got an unexpected keyword argument". The scripts decode the audio with
+  ffmpeg and hand faster-whisper the samples, so PyAV is never asked.

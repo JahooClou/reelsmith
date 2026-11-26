@@ -54,6 +54,18 @@ long it should run. If the editor gives preferences mid-job ("mostly Saturday
 afternoon", "more slow motion", "very dynamic"), record each one in
 `reelsmith.json` under `brief` and honour it in every later step.
 
+If the editor names a reference ("make it like this reel"), measure it before
+anything else and record the numbers in the brief:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/pace.py reference.mp4 --words --sheet ref_first6.jpg
+```
+
+Hits per second, cuts per second, the longest stretch with nothing new, words per
+second, and the first 6 seconds at 6 frames a second. Look at the reference's
+contact sheets too: the numbers give the pace, the pictures give the look
+(`references/shortform.md`, "Matching a reference").
+
 **Gate:** the brief, written back in five lines. Record it and move on.
 
 The answers pick the references to load:
@@ -215,6 +227,15 @@ First, middle and last frame of every clip, cropped and at its speed, plus a lis
 any moment used twice (`--repeats` gives the list alone). Fix the list, not the
 render.
 
+With a reference, render a draft and compare the pace:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/pace.py reference.mp4 out/Recap_1080x1920.mp4 --sheet pace.jpg
+```
+
+Hits per second and the longest still stretch should be within about 20 % of the
+reference's before the cut goes to the editor.
+
 **Gate:** the cut as a table (shot, clip, in, length, what it is) plus the check
 sheets. Expect changes; that is the job.
 
@@ -232,7 +253,18 @@ What is done here depends on the delivery answer.
 - **Text and captions.** Social: a hook card, a few short cards, burnt-in only if
   asked; keep them off faces and inside the platform's interface margins. Long-form:
   lower thirds and a title. Render text plates with `captions.py` (correct font
-  weights), or hand the text over with timings.
+  weights), or hand the text over with timings. To keep burnt-in text off faces,
+  render the picture clean, measure the faces, and let the plates place themselves:
+
+  ```bash
+  python ${CLAUDE_PLUGIN_ROOT}/scripts/qc.py out/clean.mp4 --edl edl.json --faces-out faces.json
+  python ${CLAUDE_PLUGIN_ROOT}/scripts/captions.py captions.json --out caps/ --font FONT --faces faces.json
+  ```
+
+  Each plate whose `y` is `"auto"` goes to the first spot off every face and inside
+  the interface margins, shrinking to 85 % and 72 % before it gives up a margin. It
+  never gives up the face; when nothing fits it says so, and the line needs to be
+  shorter or the clip reframed.
 - **Sound.** Music level and ducking, SFX on transitions and impacts (shutter
   clicks, whooshes, hits), nat sound up where it carries the moment. A sound that
   starts a frame or two before its picture feels right; one that starts after feels
@@ -256,6 +288,18 @@ rendered:
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/scripts/premiere_xml.py edl.json --out cut.xml --balance grade/
 ```
+
+Check the rendered file before it leaves:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/qc.py out/Recap_1080x1920.mp4 --edl edl.json --captions caps/ --sheet qc.jpg
+```
+
+Size, rate and length (to the frame) against the edit list; black frames and freezes;
+loudness, true peak and gaps in the sound; captions on faces or outside the
+interface margins; with `--speech`, each caption compared with what is said under
+it. A FAIL is fixed in the edit list and rendered again. Open the sheet even on a
+pass.
 
 Always hand over the edit list as well: shot, clip name, source TC in, TC out,
 duration, speed, plus a version with notes and reframe values.
@@ -296,10 +340,12 @@ leaves open.
 | `logsheet.py` | log many originals: sampled frames, contact sheets, index |
 | `shots.py` | shot detection inside one long file |
 | `verify.py` | dense scan of a take; check every clip of an edit list as seen; list moments used twice |
+| `pace.py` | the pace of a reference or a cut: hits, cuts, longest still, words per second; compares to a reference |
+| `qc.py` | check a rendered file: format, black and frozen frames, loudness and gaps, captions on faces or outside the margins, caption against speech; face boxes for `captions.py` |
 | `beats.py` | tracked beats, downbeats, bars, sections; cut frames one frame early |
 | `music_cut.py` | shorten a track on downbeats; ranks the best splices |
 | `balance.py`, `color.py` | per-shot balance and shared look; per-camera LUTs |
-| `captions.py` | text plates as PNG with the right font weights |
+| `captions.py` | text plates as PNG with the right font weights; places them off faces with `--faces` |
 | `render.py` | edit list to finished file from the originals |
 | `premiere_xml.py` | edit list to a Premiere sequence linked to the originals |
 | `review_xml.py` | what an editor changed in their re-edit, measured |
